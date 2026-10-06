@@ -103,8 +103,10 @@
   <div id="sel" class="panel hidden">
     <div class="row top"><b id="selName"></b><button id="selClose" aria-label="Deselect">✕</button></div>
     <div class="row" id="modeSeg">
-      <button data-mode="move">✥ Move</button>
-      <button data-mode="lift">↕ Lift</button>
+      <button data-mode="move" title="Move along the floor; from a front or side view it slides across the screen only">✥ Move</button>
+      <button data-mode="x" title="Left / right only">↔ X</button>
+      <button data-mode="z" title="Toward / away from you only">⤢ Z</button>
+      <button data-mode="lift" title="Up / down only">↕ Lift</button>
       <button data-mode="rotate">⟳ Rotate</button>
       <span class="sub" id="modeHint"></span>
     </div>
@@ -540,7 +542,7 @@ if (saved && saved.S) {
   if (saved.v >= 2 && typeof o.labels === 'boolean') S.labels = o.labels;
   if (typeof o.wall === 'boolean') S.wall = o.wall;
   for (const k of ['deskWall', 'alexWall']) if (Number.isFinite(o[k])) S[k] = Math.min(GAP_MAX, Math.max(0, o[k]));
-  if (['move', 'lift', 'rotate'].includes(o.mode)) S.mode = o.mode;
+  if (['move', 'x', 'z', 'lift', 'rotate'].includes(o.mode)) S.mode = o.mode;
 }
 let saveTimer = 0;
 function saveNow() {
@@ -843,6 +845,27 @@ function pick(e) {
 function rayPlane(plane) { const p = new V3(); return raycaster.ray.intersectPlane(plane, p) ? p : null; }
 
 let drag = null, tap = null;
+// Pick the drag plane so the cursor ray never grazes it. Axis-locked drags use the plane that
+// contains the axis and faces the camera best; free Move uses the floor plane only when looking
+// down on it, otherwise it slides along whichever floor axis runs across the screen.
+const AXIS = { x: new V3(1, 0, 0), y: new V3(0, 1, 0), z: new V3(0, 0, 1) };
+function dragPlane(mode, point) {
+  if (mode === 'rotate') return {};
+  const d = new V3(); camera.getWorldDirection(d);
+  let axes;
+  if (mode === 'move') {
+    if (Math.abs(d.y) > 0.4) return { axes: ['x', 'z'], plane: new THREE.Plane(new V3(0, 1, 0), -point.y) };
+    axes = [Math.abs(d.x) < Math.abs(d.z) ? 'x' : 'z'];
+  } else axes = [mode === 'lift' ? 'y' : mode];
+  const ax = AXIS[axes[0]], n = d.clone().addScaledVector(ax, -d.dot(ax));
+  // looking straight down the axis: fall back to vertical screen motion (up = up / away from you)
+  if (n.lengthSq() < 0.02) return { axes, plane: null, sgn: axes[0] === 'y' ? 1 : Math.sign(d[axes[0]]) || 1 };
+  return { axes, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(n.normalize(), point) };
+}
+function worldPerPixel(point) {
+  const dist = camera.position.distanceTo(point);
+  return 2 * dist * Math.tan(camera.fov * DEG / 2) / renderer.domElement.clientHeight;
+}
 wrap.addEventListener('pointerdown', e => {
   if (e.target !== renderer.domElement) return;
   if (drag) { e.stopPropagation(); return; }
@@ -855,13 +878,8 @@ wrap.addEventListener('pointerdown', e => {
   let mode = S.mode;
   if (e.shiftKey) mode = 'lift';
   if (e.altKey || e.ctrlKey || e.metaKey) mode = 'rotate';
-  const camDir = new V3(); camera.getWorldDirection(camDir); camDir.y = 0;
-  if (camDir.lengthSq() < 1e-6) camDir.set(0, 0, -1);
-  camDir.normalize();
-  const plane = mode === 'lift'
-    ? new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, hit.point)
-    : new THREE.Plane(new V3(0, 1, 0), -hit.point.y);
-  drag = { id: hit.id, pid: e.pointerId, mode, plane, p0: hit.point.clone(), s0: { ...u.state }, x0: e.clientX, before: snapshot() };
+  drag = { id: hit.id, pid: e.pointerId, mode, p0: hit.point.clone(), s0: { ...u.state },
+    x0: e.clientX, y0: e.clientY, before: snapshot(), ...dragPlane(mode, hit.point) };
   controls.enabled = false;
   e.stopPropagation();
 }, true);
@@ -873,15 +891,17 @@ window.addEventListener('pointermove', e => {
     const deg = Math.round(drag.s0.ry / DEG - (e.clientX - drag.x0) * 0.5);
     u.state.ry = deg * DEG; u.moved = true;
   } else {
-    setNdc(e); const p = rayPlane(drag.plane); if (!p) return;
-    if (drag.mode === 'lift') {
-      u.state.y = drag.s0.y + (p.y - drag.p0.y);
-      if (drag.id === 'monitor') u.autoY = false; else u.moved = true;
+    let delta;
+    if (drag.plane) {
+      setNdc(e); const p = rayPlane(drag.plane); if (!p) return;
+      delta = p.sub(drag.p0);
     } else {
-      u.state.x = drag.s0.x + (p.x - drag.p0.x);
-      u.state.z = drag.s0.z + (p.z - drag.p0.z);
-      u.moved = true;
+      const v = -(e.clientY - drag.y0) * worldPerPixel(drag.p0) * drag.sgn;
+      delta = new V3(); delta[drag.axes[0]] = v;
     }
+    for (const k of drag.axes) u.state[k] = drag.s0[k] + delta[k];
+    if (drag.axes.includes('y')) { if (drag.id === 'monitor') u.autoY = false; else u.moved = true; }
+    if (drag.axes.includes('x') || drag.axes.includes('z')) u.moved = true;
   }
   apply(u); update();
 });
@@ -922,7 +942,7 @@ function rotateBy(deg) {
 function syncSelPanel() {
   selEl.classList.toggle('hidden', !selected);
   document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === S.mode));
-  $('modeHint').textContent = matchMedia('(pointer:fine)').matches ? 'Shift-drag lifts · Alt-drag rotates' : 'Drag the object';
+  $('modeHint').textContent = matchMedia('(pointer:fine)').matches ? 'Shift-drag lifts · Alt-drag rotates' : '';
   if (!selected) return;
   const u = units[selected], s = u.state;
   $('selName').textContent = selected === 'monitor' ? `${mon().name} + iPad` : selected === 'laptop' ? `MacBook Air ${S.mac}″` : u.name;
@@ -1021,7 +1041,7 @@ $('notesBody').innerHTML =
   `<h4 class="flag">Assumed / unverified</h4><ul>${NOTES.flags.map(t => `<li class="flag">${t}</li>`).join('')}</ul>` +
   `<h4>Sourced</h4><ul>${NOTES.sources.map(t => `<li>${t}</li>`).join('')}</ul>` +
   `<h4>Controls</h4><ul><li>Orbit: drag empty space (one finger / left mouse). Zoom: pinch / wheel. Pan: two fingers / right mouse.</li>` +
-  `<li>Tap or click an object to select it, then drag it. Pick Move, Lift or Rotate in the panel, or type exact values. With a mouse, Shift-drag lifts and Alt-drag rotates; R rotates 15°.</li>` +
+  `<li>Tap or click an object to select it, then drag it. Move slides along the floor (from a front or side view it only moves across the screen, so nothing jumps toward you). X, Z and Lift lock to one axis; Rotate turns it. You can also type exact values. With a mouse, Shift-drag lifts and Alt-drag rotates; R rotates 15°.</li>` +
   `<li>Your layout, toggles and view are saved in this browser and restored next visit. Reset layout starts over.</li>
   <li>Undo / Redo step back through moves, rotations and toggles (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z). Camera moves aren't undone.</li>
   <li>Objects can't be scaled. The iPad, its side arm and the plate move with the monitor.</li></ul>`;
