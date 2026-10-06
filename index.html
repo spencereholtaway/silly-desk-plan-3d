@@ -1,3 +1,858 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Desk Plan 3D</title></head>
-<body style="font-family:system-ui;padding:16px"><p>Desk Plan 3D — coming shortly.</p></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Desk Plan 3D</title>
+<style>
+  :root { --bg:#eef0f3; --panel:rgba(255,255,255,.92); --ink:#1d2330; --muted:#5b6475; --line:#d3d8e0;
+          --accent:#2f6fde; --warn:#c62828; --ok:#1b7f3b; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--ink);
+              font:12px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; -webkit-text-size-adjust:100%; }
+  #wrap { position:fixed; inset:0; }
+  #wrap canvas { display:block; touch-action:none; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 8px;
+           box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  #hud { position:fixed; top:max(8px,env(safe-area-inset-top)); left:8px; right:8px; display:flex; gap:6px;
+         align-items:flex-start; justify-content:space-between; pointer-events:none; }
+  #hud > * { pointer-events:auto; }
+  details summary { cursor:pointer; font-weight:600; list-style:none; user-select:none; }
+  details summary::-webkit-details-marker { display:none; }
+  details summary::before { content:"▸ "; color:var(--muted); }
+  details[open] summary::before { content:"▾ "; }
+  #clear { max-width:min(340px, calc(100vw - 16px)); }
+  #clear table { border-collapse:collapse; margin-top:4px; }
+  #clear td { padding:1px 0; vertical-align:top; }
+  #clear td.v { text-align:right; padding-left:10px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .neg { color:var(--warn); font-weight:600; } .pos { color:var(--ok); }
+  #overlaps { margin-top:4px; color:var(--warn); font-weight:600; }
+  #notes { max-width:min(380px, calc(100vw - 16px)); max-height:60vh; overflow:auto; }
+  #notes h4 { margin:6px 0 2px; font-size:12px; }
+  #notes ul { margin:0; padding-left:16px; } #notes li { margin:2px 0; }
+  #notes .flag { color:#a15c00; }
+  .sub { color:var(--muted); font-size:11px; }
+  #bottom { position:fixed; left:8px; right:8px; bottom:max(8px,env(safe-area-inset-bottom));
+            display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; }
+  #bottom > * { pointer-events:auto; }
+  #bar { display:flex; flex-wrap:wrap; gap:4px 10px; justify-content:center; max-width:760px; }
+  .grp { display:flex; align-items:center; gap:3px; }
+  .grp > span { color:var(--muted); font-size:11px; margin-right:1px; }
+  button { font:inherit; font-size:12px; border:1px solid var(--line); background:#fff; color:var(--ink);
+           border-radius:6px; padding:4px 7px; cursor:pointer; touch-action:manipulation; }
+  button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:active { transform:translateY(1px); }
+  #sel { width:min(420px, 100%); }
+  #sel.hidden { display:none; }
+  #sel .row { display:flex; gap:4px; align-items:center; flex-wrap:wrap; margin:3px 0; }
+  #sel .row.top { justify-content:space-between; flex-wrap:nowrap; }
+  #sel label { display:flex; align-items:center; gap:3px; font-size:11px; color:var(--muted); }
+  #sel input { width:62px; font:inherit; font-size:12px; padding:3px 4px; border:1px solid var(--line); border-radius:5px; }
+  #labels { position:fixed; inset:0; pointer-events:none; overflow:hidden; }
+  .lbl { position:absolute; left:0; top:0; white-space:nowrap; font-size:10.5px; line-height:1.25;
+         background:rgba(255,255,255,.82); border:1px solid rgba(0,0,0,.12); border-radius:4px; padding:1px 4px;
+         color:#222; will-change:transform; }
+  .lbl b { font-weight:600; }
+  .lbl.clr { background:rgba(255,248,214,.95); border-color:#d8b84a; font-weight:600; }
+  .lbl.clr.bad { background:rgba(255,226,226,.95); border-color:#d55; color:var(--warn); }
+  #title { font-weight:700; }
+  @media (max-width:600px) {
+    .lbl { font-size:9px; padding:0 3px; }
+    .lbl .d { display:none; }
+    #clear, #notes { font-size:11px; }
+    button { padding:4px 6px; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap"></div>
+<div id="labels"></div>
+
+<div id="hud">
+  <details id="clear" class="panel" open>
+    <summary><span id="title">Desk Plan 3D</span> · clearances <span id="ovCount"></span></summary>
+    <div class="sub">Origin: back-left corner of desktop. X→right, Y↑, Z→you. Inches (cm).</div>
+    <table id="clrTable"></table>
+    <div id="overlaps"></div>
+  </details>
+  <details id="notes" class="panel">
+    <summary>⚠ Assumptions &amp; sources</summary>
+    <div id="notesBody"></div>
+  </details>
+</div>
+
+<div id="bottom">
+  <div id="sel" class="panel hidden">
+    <div class="row top"><b id="selName"></b><button id="selClose" aria-label="Deselect">✕</button></div>
+    <div class="row" id="modeSeg">
+      <button data-mode="move">✥ Move</button>
+      <button data-mode="lift">↕ Lift</button>
+      <button data-mode="rotate">⟳ Rotate</button>
+      <span class="sub" id="modeHint"></span>
+    </div>
+    <div class="row">
+      <label>X <input id="inX" type="number" step="0.25"></label>
+      <label><span id="lblY">Y</span> <input id="inY" type="number" step="0.25"></label>
+      <label>Z <input id="inZ" type="number" step="0.25"></label>
+      <label>° <input id="inR" type="number" step="1"></label>
+    </div>
+    <div class="row">
+      <button data-rot="-15">−15°</button><button data-rot="-1">−1°</button>
+      <button data-rot="1">+1°</button><button data-rot="15">+15°</button>
+      <button id="selReset">Reset this</button>
+    </div>
+    <div class="sub" id="selCm"></div>
+  </div>
+  <div id="bar" class="panel">
+    <div class="grp"><span>Rack</span><button data-k="rack" data-v="2U">2U</button><button data-k="rack" data-v="4U">4U</button></div>
+    <div class="grp"><span>Monitor</span><button data-k="mon" data-v="a" title="ASUS ProArt PA32QCV">a</button><button data-k="mon" data-v="b" title="INNOCN 34C1U">b</button><button data-k="mon" data-v="c" title="Dell U3425WE">c</button></div>
+    <div class="grp"><span>MacBook</span><button data-k="mac" data-v="13">13″</button><button data-k="mac" data-v="15">15″</button><button id="lapBtn">Hide</button></div>
+    <div class="grp"><span>View</span><button data-view="top">Top</button><button data-view="front">Front</button><button data-view="side">Side</button><button data-view="seated">Seated</button></div>
+    <div class="grp"><button id="lblBtn" class="on">Labels</button><button id="resetBtn">Reset layout</button></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(() => {
+'use strict';
+// ============================================================================
+// Units: inches. Origin = back-left corner of the desktop surface.
+// X → right, Y → up, Z → toward the user.
+// ============================================================================
+const CM = 1 / 2.54, MM = 1 / 25.4, DEG = Math.PI / 180;
+const V3 = THREE.Vector3;
+
+// ---- 1. IKEA LAGKAPTEN top on MITTBACK trestles ----------------------------
+const DESK_W_CM = 120;            // change to 140 if that's your top
+const DESK_D_CM = 60, TOP_T_CM = 3.0;
+const DESK_H_CM = 73;             // IKEA lists LAGKAPTEN/MITTBACK desk min (flat) height 73 cm
+const DESK_W = DESK_W_CM * CM, DESK_D = DESK_D_CM * CM, TOP_T = TOP_T_CM * CM, DESK_H = DESK_H_CM * CM;
+const TRESTLE = { depth: 56 * CM, post: 1.4, inset: 12 * CM }; // assumed, simplified shape
+
+// ---- 2. Gator Frameworks Elite desktop rack ---------------------------------
+const RACK_W = 21, RACK_D = 14, RACK_USABLE_D = 12.75;
+const RACKS = { '2U': { u: 2, h: 6.5, verified: false }, '4U': { u: 4, h: 10, verified: true } };
+const DBX = { w: 19, h: 1.75, d: 8 };                 // depth assumed
+
+// ---- 3. VIVO STAND-V101GT -----------------------------------------------------
+const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, L1: 11, L2: 12, head: 3, centerMin: 10.5, centerMax: 23.5 };
+const CLAMP_W = 2.4, CLAMP_D = 2.4, POLE_GAP = 1.5, COLLAR_GAP = 1, COLLAR_H = 1.6, COLLAR_R = 1.15;
+
+// ---- 4. Monitors (no stand) ---------------------------------------------------
+const MONITORS = {
+  a: { name: 'ASUS ProArt PA32QCV', w: 28.12, h: 16.52, d: 1.85, curve: 0 },
+  b: { name: 'INNOCN 34C1U', w: 32.16, h: 14.4, d: 2.0, curve: 0 },
+  c: { name: 'Dell U3425WE', w: 813.5 * MM, h: 359.1 * MM, d: 105.1 * MM, curve: 1900 * MM },
+};
+const MON_VESA_Z = 3.5;    // z of the monitor's back (VESA) plane, default placement
+const MON_CLEAR = 1;       // bottom edge ≥ 1" above tallest rack-top item
+
+// ---- 5. iPad Pro 13" (M4), landscape ----------------------------------------
+const IPAD = { w: 281.6 * MM, h: 215.5 * MM, d: 5.1 * MM };
+const IPAD_GAP = 1;
+const PLATE = { w: 4.7, h: 4.7, d: 0.25 };            // MagFlött plate, assumed
+
+// ---- 6. MacBook Air M3 -------------------------------------------------------
+const MACS = { 13: { w: 11.97, d: 8.46, h: 0.44 }, 15: { w: 13.40, d: 9.35, h: 0.45 } };
+const MAC_OPEN = 110, MAC_BASE_FRAC = 0.6;           // base/lid thickness split assumed
+
+// ---- 7. Sound Devices MixPre -------------------------------------------------
+const MIXPRE = { w: 110 * MM, d: 114 * MM, h: 36 * MM };
+
+// ---- 8. Apple Magic Keyboard with Numeric Keypad ----------------------------
+const KB = { w: 16.48, d: 4.52, hFront: 0.16, hBack: 0.43 };
+const KB_FRONT_GAP = 2;
+
+// ---- Seated eye height, 6'5" person ----------------------------------------
+const STATURE = 77;
+const SEAT_H = 0.25 * STATURE + 1;          // popliteal height + shoe, rough
+const SIT_EYE = 0.441 * STATURE;            // sitting eye height above seat, rough ratio
+const EYE_Y = SEAT_H + SIT_EYE - DESK_H;    // relative to desktop surface
+
+const NOTES = {
+  flags: [
+    `Desk top size 120 × 60 × 3 cm is assumed (DESK_W_CM constant at the top of the script; set 140 if needed).`,
+    `MITTBACK trestle shape, ${(TRESTLE.depth / CM).toFixed(0)} cm footprint and inset are simplified/assumed.`,
+    `Rack 2U height 6.5″ (same 21 × 14″ footprint) is unverified. Rack internals (1.5″ top/bottom panels, 1″ sides, open back) are simplified.`,
+    `dbx 286s depth 8″ is assumed; drawn in the top rack space, front flush with the rack front.`,
+    `VIVO STAND-V101GT: 13″ pole, 26″ max extension, 10.5–23.5″ screen-center range come from retailer listings (vivo-us.com was unreachable). Treat as unverified; the GT may be taller.`,
+    `Arm segment lengths (11″ + 12″ + 3″ tilt head), pole Ø 1.4″, collar 1.6″ tall, clamp 2.4 × 2.4″ are assumed. The pole is placed with the clamp's left edge 1.5″ from the rack's right side.`,
+    `VESA mount assumed at the panel center. Monitor back plane placed at z = ${MON_VESA_Z}″ by default.`,
+    `INNOCN 34C1U: width 32.16″ from a retailer listing; height 14.4″ and depth 2.0″ (no stand) are estimates.`,
+    `Dell U3425WE curve drawn as 1900R; panel thickness and rear-housing shape are approximate. The overlap box uses the full 813.5 × 359.1 × 105.1 mm envelope.`,
+    `Monitor height rule: bottom edge 1″ above the tallest fixed rack-top item (MixPre, laptop deck). The open laptop lid isn't counted, so its collision with the monitor shows.`,
+    `ergoiuon side-arm geometry and MagFlött plate (4.7 × 4.7 × 0.25″) are assumed; iPad front is set flush with the monitor's front.`,
+    `MacBook base/lid thickness split (60/40 of closed height) and lid length (= depth) are assumed. Laptop and MixPre fronts are flush with the rack front.`,
+    `Seated eye height (${(EYE_Y + DESK_H).toFixed(1)}″ above floor, ${EYE_Y.toFixed(1)}″ above desk) is an anthropometric estimate for a 6′5″ person on a typical chair.`,
+  ],
+  sources: [
+    `Desk height 73 cm: IKEA LAGKAPTEN/MITTBACK listing (min/flat height). ikea.com itself was blocked here; confirmed via IKEA regional listing in search.`,
+    `Rack 4U: 21 × 14 × 10″, usable depth 12.75″ (from brief).`,
+    `ASUS PA32QCV: 28.12 × 16.52 × 1.85″ without stand (ASUS spec, from brief).`,
+    `Dell U3425WE: 813.5 × 359.1 × 105.1 mm without stand, 1900R.`,
+    `iPad Pro 13″ (M4): 281.6 × 215.5 × 5.1 mm.`,
+    `MacBook Air M3: 13″ 11.97 × 8.46 × 0.44″; 15″ 13.40 × 9.35 × 0.45″.`,
+    `Magic Keyboard with Numeric Keypad: 16.48 × 4.52″, 0.16–0.43″ tall.`,
+    `MixPre: 110 × 114 × 36 mm (from brief).`,
+    `Apple, ASUS, INNOCN and VIVO sites were blocked from the build environment. Apple figures match Apple's published specs as quoted by third parties.`,
+  ],
+};
+
+// ============================================================================
+// Scene
+// ============================================================================
+const wrap = document.getElementById('wrap');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+wrap.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xeef0f3);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 3000);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.screenSpacePanning = true;
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+controls.maxDistance = 600;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f99, 0.8));
+const sun = new THREE.DirectionalLight(0xffffff, 0.4); sun.position.set(30, 90, 70); scene.add(sun);
+
+// floor + grid (12" squares)
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), new THREE.MeshLambertMaterial({ color: 0xe2e4e8 }));
+floor.rotation.x = -Math.PI / 2; floor.position.set(DESK_W / 2, -DESK_H - 0.01, DESK_D / 2); scene.add(floor);
+const grid = new THREE.GridHelper(240, 20, 0xbfc4cc, 0xd0d4da); grid.position.set(DESK_W / 2, -DESK_H, DESK_D / 2); scene.add(grid);
+const axes = new THREE.AxesHelper(3); axes.position.set(0, 0.02, 0); scene.add(axes);
+
+function resize() {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+// ============================================================================
+// Mesh helpers
+// ============================================================================
+const EDGE_MAT = new THREE.LineBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.35 });
+const COLL_MAT = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.2, depthWrite: false });
+const RED = new THREE.Color(0xe53935);
+
+function addMesh(u, part, geom, color, parent, pos) {
+  const m = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ color }));
+  m.userData = { base: new THREE.Color(color), unit: u.selId || u.id, part: u.id + ':' + part };
+  if (pos) m.position.set(pos[0], pos[1], pos[2]);
+  (parent || u.group).add(m);
+  m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geom, 25), EDGE_MAT));
+  u.meshes.push(m);
+  return m;
+}
+function addCollider(u, part, w, h, d, x, y, z, parent, label) {
+  const c = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), COLL_MAT);
+  c.position.set(x, y, z); c.visible = false; c.renderOrder = 5;
+  c.userData = { unit: u.id, part: u.id + ':' + part, label: label || u.name };
+  (parent || u.group).add(c);
+  u.colliders.push(c);
+  if (!u.named[part]) u.named[part] = c;
+  return c;
+}
+function addBox(u, part, w, h, d, color, x, y, z, parent, opts = {}) {
+  const m = addMesh(u, part, new THREE.BoxGeometry(w, h, d), color, parent, [x, y, z]);
+  if (opts.collider !== false) addCollider(u, part, w, h, d, x, y, z, parent, opts.label);
+  return m;
+}
+function addCyl(u, part, r, h, color, x, y, z, parent, axis) {
+  const g = new THREE.CylinderGeometry(r, r, h, 24);
+  if (axis === 'z') g.rotateX(Math.PI / 2);
+  return addMesh(u, part, g, color, parent, [x, y, z]);
+}
+function disposeTree(o) {
+  o.traverse(n => {
+    if (n.geometry) n.geometry.dispose();
+    if (n.material && n.material !== EDGE_MAT && n.material !== COLL_MAT) n.material.dispose();
+  });
+}
+
+// ============================================================================
+// Units (movable groups)
+// ============================================================================
+const S = { rack: '4U', mon: 'a', mac: 13, laptop: true, labels: true, mode: 'move' };
+const units = {};
+function defUnit(id, name, build, opts = {}) {
+  const u = Object.assign({ id, name, build, group: new THREE.Group(), meshes: [], colliders: [], named: {},
+    state: { x: 0, y: 0, z: 0, ry: 0 }, moved: false, selectable: true }, opts);
+  scene.add(u.group); units[id] = u; return u;
+}
+function rebuild(u) {
+  [...u.group.children].forEach(c => { u.group.remove(c); disposeTree(c); });
+  u.meshes = []; u.colliders = []; u.named = {};
+  u.build(u); apply(u);
+}
+function apply(u) {
+  if (u.apply) return u.apply(u);
+  u.group.position.set(u.state.x, u.state.y, u.state.z);
+  u.group.rotation.set(0, u.state.ry, 0);
+}
+const rackH = () => RACKS[S.rack].h;
+const rackTopY = () => units.rack.state.y + rackH();
+const mon = () => MONITORS[S.mon];
+const mac = () => MACS[S.mac];
+const monitorAutoY = () => rackTopY() + Math.max(MIXPRE.h, mac().h * MAC_BASE_FRAC) + MON_CLEAR + mon().h / 2;
+
+// ---- Desk ----
+defUnit('desk', 'Desk', u => {
+  addBox(u, 'top', DESK_W, TOP_T, DESK_D, 0xf6f6f4, DESK_W / 2, -TOP_T / 2, DESK_D / 2, null, { label: 'Desk top' });
+  const H = DESK_H - TOP_T, birch = 0xd9c49a, p = TRESTLE.post;
+  const z0 = (DESK_D - TRESTLE.depth) / 2 + p / 2, z1 = DESK_D - z0;
+  for (const tx of [TRESTLE.inset, DESK_W - TRESTLE.inset]) {
+    for (const z of [z0, z1]) addBox(u, 'tr', p, H, p, birch, tx, -TOP_T - H / 2, z, null, { collider: false });
+    addBox(u, 'tr', p, p, TRESTLE.depth, birch, tx, -TOP_T - p / 2, DESK_D / 2, null, { collider: false });
+    addBox(u, 'tr', p * 0.8, p * 0.8, TRESTLE.depth - p, birch, tx, -TOP_T - H * 0.62, DESK_D / 2, null, { collider: false });
+    addBox(u, 'tr', p * 1.6, p * 0.7, TRESTLE.depth, birch, tx, -DESK_H + p * 0.35, DESK_D / 2, null, { collider: false });
+  }
+}, { selectable: false });
+
+// ---- Rack (pivot = bottom center of footprint) ----
+defUnit('rack', 'Gator Elite rack', u => {
+  const R = RACKS[S.rack], H = R.h, pan = (H - R.u * 1.75) / 2, side = 1, maple = 0xd8aa6c;
+  addBox(u, 'rack', RACK_W, pan, RACK_D, maple, 0, H - pan / 2, 0, null, { collider: false });
+  addBox(u, 'rack', RACK_W, pan, RACK_D, maple, 0, pan / 2, 0, null, { collider: false });
+  for (const sx of [-1, 1]) {
+    addBox(u, 'rack', side, H - 2 * pan, RACK_D, maple, sx * (RACK_W - side) / 2, H / 2, 0, null, { collider: false });
+    addBox(u, 'rack', 0.6, H - 2 * pan, 0.12, 0x333333, sx * (19 / 2 - 0.3), H / 2, RACK_D / 2 - 0.3, null, { collider: false });
+  }
+  // usable-depth marker on the bottom panel
+  addBox(u, 'rack', 19, 0.02, 0.12, 0x885522, 0, pan + 0.01, RACK_D / 2 - RACK_USABLE_D, null, { collider: false });
+  addCollider(u, 'rack', RACK_W, H, RACK_D, 0, H / 2, 0, null, `Rack ${S.rack}`);
+  const dy = H - pan - DBX.h / 2, dz = RACK_D / 2 - DBX.d / 2;
+  addBox(u, 'dbx', DBX.w, DBX.h, DBX.d, 0x1f1f22, 0, dy, dz, null, { label: 'dbx 286s' });
+  for (let i = 0; i < 6; i++) addCyl(u, 'dbx', 0.22, 0.25, 0xbbbbbb, -6 + i * 2.2, dy, RACK_D / 2 + 0.12, null, 'z');
+});
+
+// ---- Monitor arm pole (pivot = pole axis at desk surface; state.y = collar bottom) ----
+defUnit('pole', 'VIVO V101GT pole', u => {
+  const dark = 0x3a3d42, T = TOP_T;
+  addBox(u, 'clamp', CLAMP_W, 0.3, CLAMP_D, dark, 0, 0.15, 0, null, { collider: false });
+  addBox(u, 'clamp', CLAMP_W, T + 0.9, 0.5, dark, 0, -T / 2 - 0.15, -CLAMP_D / 2 - 0.25, null, { collider: false });
+  addBox(u, 'clamp', CLAMP_W, 0.4, CLAMP_D + 0.5, dark, 0, -T - 0.4, -0.25, null, { collider: false });
+  addCyl(u, 'clamp', 0.25, 1.4, 0x888888, 0, -T - 1.1, 0.3);
+  addCyl(u, 'pole', ARM.poleR, ARM.poleH - 0.3, 0xa9adb3, 0, 0.3 + (ARM.poleH - 0.3) / 2, 0);
+  addCollider(u, 'pole', ARM.poleR * 2, ARM.poleH - 0.3, ARM.poleR * 2, 0, 0.3 + (ARM.poleH - 0.3) / 2, 0, null, 'Arm pole');
+  u.collar = addCyl(u, 'collar', COLLAR_R, COLLAR_H, 0x4a4e55, 0, 0, 0);
+  addCollider(u, 'collar', COLLAR_R * 2, COLLAR_H, COLLAR_R * 2, 0, 0, 0, u.collar, 'Arm collar');
+}, {
+  apply(u) {
+    u.state.y = Math.min(Math.max(u.state.y, 0.3), ARM.poleH - COLLAR_H);
+    u.group.position.set(u.state.x, 0, u.state.z);
+    u.group.rotation.set(0, u.state.ry, 0);
+    u.collar.position.y = u.state.y + COLLAR_H / 2;
+  },
+});
+
+// ---- Arm segments (rebuilt from pole + monitor; selecting it selects the pole) ----
+defUnit('arm', 'VIVO arm', () => {}, { selectable: false, selId: 'pole' });
+let armInfo = {};
+
+// ---- Monitor + iPad (pivot = VESA point on the monitor's back plane) ----
+defUnit('monitor', 'Monitor', u => {
+  const M = mon();
+  if (M.curve) curvedMonitor(u, M);
+  else {
+    addBox(u, 'mon', M.w, M.h, M.d, 0x2c2e33, 0, 0, M.d / 2, null, { collider: false });
+    addBox(u, 'mon', M.w - 0.5, M.h - 0.5, 0.02, 0x3b5266, 0, 0, M.d + 0.011, null, { collider: false });
+  }
+  addCollider(u, 'mon', M.w, M.h, M.d, 0, 0, M.d / 2, null, M.name);
+  addBox(u, 'vesa', 4.5, 4.5, 0.25, 0x777777, 0, 0, -0.125, null, { collider: false });
+  // iPad on ergoiuon side arm + MagFlött plate
+  const ix = M.w / 2 + IPAD_GAP + IPAD.w / 2, front = M.d;
+  addBox(u, 'ipad', IPAD.w, IPAD.h, IPAD.d, 0x3a3a3c, ix, 0, front - IPAD.d / 2, null, { label: 'iPad Pro 13″' });
+  addBox(u, 'ipad', IPAD.w - 0.4, IPAD.h - 0.4, 0.01, 0x1c2733, ix, 0, front + 0.006, null, { collider: false });
+  const plateBack = front - IPAD.d - PLATE.d;
+  addBox(u, 'plate', PLATE.w, PLATE.h, PLATE.d, 0x8d9096, ix, 0, plateBack + PLATE.d / 2, null, { label: 'MagFlött plate' });
+  const barX0 = 2.25, barLen = ix - barX0;
+  addBox(u, 'side', barLen, 0.8, 0.5, 0x55585e, barX0 + barLen / 2, 0, -0.5, null, { label: 'Side arm' });
+  const postLen = plateBack + 0.75;
+  addBox(u, 'side', 0.8, 0.8, postLen, 0x55585e, ix, 0, -0.75 + postLen / 2, null, { label: 'Side arm' });
+});
+function curvedMonitor(u, M) {
+  const R = M.curve, W = M.w, H = M.h, D = M.d, t = 0.6;
+  const sag = R - Math.sqrt(R * R - W * W / 4), zc = D - sag;
+  const zf = x => zc + (R - Math.sqrt(R * R - x * x));
+  const shape = new THREE.Shape(), N = 48;
+  for (let i = 0; i <= N; i++) { const x = -W / 2 + W * i / N; i ? shape.lineTo(x, -zf(x)) : shape.moveTo(x, -zf(x)); }
+  for (let i = N; i >= 0; i--) { const x = -W / 2 + W * i / N; shape.lineTo(x, -(zf(x) - t)); }
+  const g = new THREE.ExtrudeGeometry(shape, { depth: H, bevelEnabled: false, curveSegments: 1 });
+  g.rotateX(-Math.PI / 2); g.translate(0, -H / 2, 0);
+  addMesh(u, 'mon', g, 0x2f3d4c, null, null);
+  addBox(u, 'mon', 18, 10, zc - t + 0.1, 0x2c2e33, 0, 0, (zc - t + 0.1) / 2, null, { collider: false });
+}
+
+// ---- MacBook Air (pivot = bottom center of the base) ----
+defUnit('laptop', 'MacBook Air', u => {
+  const L = mac(), bh = L.h * MAC_BASE_FRAC, lt = L.h - bh, silver = 0xc8c9cd;
+  addBox(u, 'base', L.w, bh, L.d, silver, 0, bh / 2, 0, null, { label: `MacBook ${S.mac}″ base` });
+  addBox(u, 'base', L.w * 0.82, 0.01, L.d * 0.42, 0x8a8b90, 0, bh + 0.005, -L.d * 0.14, null, { collider: false });
+  const pivot = new THREE.Group();
+  pivot.position.set(0, bh, -L.d / 2); pivot.rotation.x = -(MAC_OPEN - 90) * DEG; u.group.add(pivot);
+  addBox(u, 'lid', L.w, L.d, lt, silver, 0, L.d / 2, -lt / 2, pivot, { label: `MacBook ${S.mac}″ lid` });
+  addBox(u, 'lid', L.w - 0.6, L.d - 0.6, 0.01, 0x1c2733, 0, L.d / 2, 0.006, pivot, { collider: false });
+});
+
+// ---- MixPre (pivot = bottom center; controls face +Z) ----
+defUnit('mixpre', 'MixPre', u => {
+  const P = MIXPRE;
+  addBox(u, 'body', P.w, P.h, P.d, 0x3b3b3d, 0, P.h / 2, 0, null, { label: 'MixPre' });
+  for (let i = 0; i < 3; i++) addCyl(u, 'body', 0.22, 0.3, 0xbdbdbd, -P.w / 2 + 0.9 + i * 1.25, P.h * 0.55, P.d / 2 + 0.15, null, 'z');
+  addBox(u, 'body', 1.7, 0.01, 1.1, 0x1c2733, 0, P.h + 0.005, -0.4, null, { collider: false });
+});
+
+// ---- Magic Keyboard (pivot = bottom center) ----
+defUnit('keyboard', 'Magic Keyboard', u => {
+  const s = new THREE.Shape();
+  s.moveTo(-KB.d / 2, 0); s.lineTo(KB.d / 2, 0); s.lineTo(KB.d / 2, KB.hBack); s.lineTo(-KB.d / 2, KB.hFront); s.lineTo(-KB.d / 2, 0);
+  const g = new THREE.ExtrudeGeometry(s, { depth: KB.w, bevelEnabled: false });
+  g.rotateY(Math.PI / 2); g.translate(-KB.w / 2, 0, 0);
+  addMesh(u, 'kb', g, 0xf1f1f1, null, null);
+  addCollider(u, 'kb', KB.w, KB.hBack, KB.d, 0, KB.hBack / 2, 0, null, 'Keyboard');
+});
+
+// ---- defaults ----
+const DEFAULTS = {
+  rack: () => ({ x: DESK_W / 2, y: 0, z: RACK_D / 2, ry: 0 }),
+  pole: () => { const r = units.rack.state; return { x: r.x + RACK_W / 2 + POLE_GAP + CLAMP_W / 2, y: rackTopY() + COLLAR_GAP, z: CLAMP_D / 2, ry: 0 }; },
+  monitor: () => ({ x: DESK_W / 2, y: monitorAutoY(), z: MON_VESA_Z, ry: 0 }),
+  laptop: () => { const r = units.rack.state, L = mac(); return { x: r.x - RACK_W / 2 + L.w / 2, y: rackTopY(), z: r.z + RACK_D / 2 - L.d / 2, ry: 0 }; },
+  mixpre: () => { const r = units.rack.state; return { x: r.x + RACK_W / 2 - MIXPRE.w / 2, y: rackTopY(), z: r.z + RACK_D / 2 - MIXPRE.d / 2, ry: 0 }; },
+  keyboard: () => ({ x: DESK_W / 2, y: 0, z: DESK_D - KB_FRONT_GAP - KB.d / 2, ry: 0 }),
+};
+const ORDER = ['rack', 'pole', 'monitor', 'laptop', 'mixpre', 'keyboard'];
+function resetUnit(id) {
+  const u = units[id]; u.state = DEFAULTS[id](); u.moved = false; if (id === 'monitor') u.autoY = true; apply(u);
+}
+// Re-derive dependent positions after a toggle changes sizes.
+function refreshDependents(oldTop) {
+  const newTop = rackTopY();
+  for (const id of ['laptop', 'mixpre']) {
+    const u = units[id];
+    if (!u.moved) u.state = DEFAULTS[id]();
+    else if (Math.abs(u.state.y - oldTop) < 0.01) u.state.y = newTop;
+    apply(u);
+  }
+  const p = units.pole;
+  if (!p.moved) p.state = DEFAULTS.pole();
+  else if (Math.abs(p.state.y - (oldTop + COLLAR_GAP)) < 0.01) p.state.y = newTop + COLLAR_GAP;
+  apply(p);
+  const m = units.monitor;
+  if (!m.moved) { const keep = m.autoY; m.state = DEFAULTS.monitor(); if (!keep) m.state.y = m.state.y; }
+  if (m.autoY) m.state.y = monitorAutoY();
+  apply(m);
+}
+
+// build everything
+Object.values(units).forEach(u => u.build(u));
+units.monitor.autoY = true;
+ORDER.forEach(resetUnit);
+
+// ============================================================================
+// Arm solve: collar → elbow (horizontal) → pneumatic segment → tilt head → VESA
+// ============================================================================
+function updateArm() {
+  const u = units.arm;
+  [...u.group.children].forEach(c => { u.group.remove(c); disposeTree(c); });
+  u.meshes = []; u.colliders = []; u.named = {};
+  const P = units.pole.state, Mo = units.monitor.state;
+  const S0 = new V3(P.x, P.y + COLLAR_H / 2, P.z);
+  const fwd = new V3(Math.sin(Mo.ry), 0, Math.cos(Mo.ry));
+  const vesa = new V3(Mo.x, Mo.y, Mo.z);
+  const E = vesa.clone().addScaledVector(fwd, -ARM.head);
+  const dy = E.y - S0.y, vertOk = Math.abs(dy) <= ARM.L2;
+  const L1 = ARM.L1, L2h = Math.sqrt(Math.max(0, ARM.L2 * ARM.L2 - dy * dy));
+  let dx = E.x - S0.x, dz = E.z - S0.z, d = Math.hypot(dx, dz);
+  const dir = d > 1e-6 ? new V3(dx / d, 0, dz / d) : new V3(1, 0, 0);
+  let elbow, reachOk = true;
+  if (d >= L1 + L2h) { reachOk = d <= L1 + L2h + 1e-6; elbow = S0.clone().addScaledVector(dir, L1); }
+  else {
+    const a = (L1 * L1 - L2h * L2h + d * d) / (2 * Math.max(d, 1e-6));
+    const h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+    const perp = new V3(-dir.z, 0, dir.x);
+    const base = S0.clone().addScaledVector(dir, a);
+    const e1 = base.clone().addScaledVector(perp, h), e2 = base.clone().addScaledVector(perp, -h);
+    elbow = e1.z < e2.z ? e1 : e2;     // fold the elbow toward the back
+  }
+  bar(u, 'seg1', S0, elbow, 1.3, 0x45484e, 'Arm (lower)');
+  bar(u, 'seg2', elbow, E, 1.3, 0x45484e, 'Arm (pneumatic)');
+  bar(u, 'head', E, vesa.clone().addScaledVector(fwd, -0.25), 1.0, 0x5a5d63, 'Arm tilt head');
+  const ext = Math.hypot(vesa.x - P.x, vesa.z - P.z);
+  armInfo = { ext, reachOk: reachOk && ext <= ARM.maxExt, vertOk };
+}
+function bar(u, part, A, B, t, color, label) {
+  const len = A.distanceTo(B); if (len < 1e-3) return;
+  const m = addMesh(u, part, new THREE.BoxGeometry(t, t, len), color, null, null);
+  m.position.copy(A).add(B).multiplyScalar(0.5); m.lookAt(B);
+  addCollider(u, part, t, t, len, 0, 0, 0, m, label);
+}
+
+// ============================================================================
+// Collisions: oriented-box SAT on every collider pair from different units
+// ============================================================================
+const SKIP = new Set(['arm|monitor', 'monitor|arm', 'arm|pole', 'pole|arm']);
+const EPS = 0.02;
+function obb(m) {
+  const e = m.matrixWorld.elements, p = m.geometry.parameters;
+  return {
+    c: new V3(e[12], e[13], e[14]),
+    ax: [new V3(e[0], e[1], e[2]).normalize(), new V3(e[4], e[5], e[6]).normalize(), new V3(e[8], e[9], e[10]).normalize()],
+    h: [p.width / 2, p.height / 2, p.depth / 2],
+  };
+}
+function overlap(A, B) {
+  const T = B.c.clone().sub(A.c), axes = [...A.ax, ...B.ax];
+  for (const a of A.ax) for (const b of B.ax) { const c = a.clone().cross(b); if (c.lengthSq() > 1e-8) axes.push(c.normalize()); }
+  for (const L of axes) {
+    let rA = 0, rB = 0;
+    for (let k = 0; k < 3; k++) { rA += Math.abs(A.ax[k].dot(L)) * A.h[k]; rB += Math.abs(B.ax[k].dot(L)) * B.h[k]; }
+    if (Math.abs(T.dot(L)) > rA + rB - EPS) return false;
+  }
+  return true;
+}
+let overlaps = [];
+function checkCollisions() {
+  const list = [];
+  for (const u of Object.values(units)) {
+    if (!u.group.visible) continue;
+    for (const c of u.colliders) { c.visible = false; list.push({ c, u: u.id, o: obb(c) }); }
+  }
+  const hitParts = new Set(); overlaps = [];
+  for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+    const A = list[i], B = list[j];
+    if (A.u === B.u || SKIP.has(A.u + '|' + B.u)) continue;
+    if (overlap(A.o, B.o)) {
+      A.c.visible = B.c.visible = true;
+      hitParts.add(A.c.userData.part); hitParts.add(B.c.userData.part);
+      const pair = `${A.c.userData.label} × ${B.c.userData.label}`;
+      if (!overlaps.includes(pair)) overlaps.push(pair);
+    }
+  }
+  for (const u of Object.values(units)) for (const m of u.meshes) {
+    m.material.color.copy(hitParts.has(m.userData.part) ? m.userData.base.clone().lerp(RED, 0.55) : m.userData.base);
+  }
+}
+
+// ============================================================================
+// Clearances, 3D dimension lines and labels
+// ============================================================================
+const fmt = v => `${v.toFixed(2)} in (${(v * 2.54).toFixed(1)} cm)`;
+const box = o => new THREE.Box3().setFromObject(o);
+const labelsEl = document.getElementById('labels');
+const labels = [];
+function makeLabel(cls) {
+  const el = document.createElement('div'); el.className = 'lbl ' + (cls || ''); labelsEl.appendChild(el);
+  const L = { el, pos: new V3(), show: true, html: '' }; labels.push(L); return L;
+}
+function setLabel(L, html, pos, show = true) {
+  if (L.html !== html) { L.el.innerHTML = html; L.html = html; }
+  L.pos.copy(pos); L.show = show;
+}
+const dimMat = { ok: new THREE.LineBasicMaterial({ color: 0x1b7f3b }), bad: new THREE.LineBasicMaterial({ color: 0xd32f2f }) };
+const dims = {};
+function dim(key) {
+  if (!dims[key]) {
+    const g = new THREE.BufferGeometry().setFromPoints([new V3(), new V3()]);
+    const line = new THREE.Line(g, dimMat.ok); line.renderOrder = 10; line.material.depthTest = true;
+    scene.add(line); dims[key] = { line, label: makeLabel('clr') };
+  }
+  return dims[key];
+}
+function setDim(key, a, b, value, text, show = true) {
+  const d = dim(key), bad = value < 0;
+  d.line.visible = show;
+  d.line.geometry.setFromPoints([a, b]);
+  d.line.material = bad ? dimMat.bad : dimMat.ok;
+  d.label.el.classList.toggle('bad', bad);
+  setLabel(d.label, `${text}: ${value.toFixed(2)}″`, a.clone().add(b).multiplyScalar(0.5), show && S.labels);
+}
+const objLabels = {};
+function objLabel(key, html, pos, show = true) {
+  if (!objLabels[key]) objLabels[key] = makeLabel();
+  html = html.replace(/<\/b>([\s\S]*)$/, (m, rest) => rest ? `</b><span class="d">${rest}</span>` : m);
+  setLabel(objLabels[key], html, pos, show && S.labels);
+}
+const dimTxt = (w, h, d) => `${w.toFixed(2)}×${h.toFixed(2)}×${d.toFixed(2)}″ · ${(w * 2.54).toFixed(1)}×${(h * 2.54).toFixed(1)}×${(d * 2.54).toFixed(1)} cm`;
+
+const clrTable = document.getElementById('clrTable'), overlapsEl = document.getElementById('overlaps');
+function updateClearances() {
+  const rk = units.rack, mo = units.monitor, lp = units.laptop, mp = units.mixpre, po = units.pole;
+  const rb = box(rk.named.rack), mb = box(mo.named.mon), ib = box(mo.named.ipad), xb = box(mp.named.body);
+  const lapOn = S.laptop;
+  const lb = lapOn ? box(lp.named.lid).union(box(lp.named.base)) : null;
+
+  const rackFront = DESK_D - rb.max.z;
+  const monMix = mb.min.y - xb.max.y;
+  const monLap = lapOn ? mb.min.y - lb.max.y : NaN;
+  const collar = po.state.y - rb.max.y;
+  const over = ib.max.x - DESK_W;
+  const cx = (rb.min.x + rb.max.x) / 2;
+
+  setDim('rackFront', new V3(cx, 0.06, rb.max.z), new V3(cx, 0.06, DESK_D), rackFront, 'Rack→desk front');
+  const mz = (mb.min.z + mb.max.z) / 2;
+  const xcx = (xb.min.x + xb.max.x) / 2;
+  setDim('monMix', new V3(xcx, xb.max.y, mz), new V3(xcx, mb.min.y, mz), monMix, 'Mon↔MixPre');
+  if (lapOn) {
+    const lcx = (lb.min.x + lb.max.x) / 2;
+    setDim('monLap', new V3(lcx, lb.max.y, mz), new V3(lcx, mb.min.y, mz), monLap, 'Mon↔laptop');
+  } else setDim('monLap', new V3(), new V3(), 0, '', false);
+  const pp = new V3(po.state.x - COLLAR_R - 0.6, 0, po.state.z);
+  setDim('collar', new V3(pp.x, rb.max.y, pp.z), new V3(pp.x, po.state.y, pp.z), collar, 'Collar↔rack');
+  const iy = ib.min.y - 0.6, iz = (ib.min.z + ib.max.z) / 2;
+  setDim('ipad', new V3(DESK_W, iy, iz), new V3(ib.max.x, iy, iz), over, 'iPad overhang');
+  dims.ipad.line.material = over > 0 ? dimMat.bad : dimMat.ok;
+  dims.ipad.label.el.classList.toggle('bad', over > 0);
+
+  const ch = mo.state.y, chOk = ch >= ARM.centerMin && ch <= ARM.centerMax;
+  const row = (k, v, cls = '') => `<tr><td>${k}</td><td class="v ${cls}">${v}</td></tr>`;
+  const sign = v => v < 0 ? 'neg' : 'pos';
+  clrTable.innerHTML =
+    row('Rack front → desk front', fmt(rackFront), sign(rackFront)) +
+    row('Monitor bottom → MixPre top', fmt(monMix), sign(monMix)) +
+    row('Monitor bottom → laptop top', lapOn ? fmt(monLap) : 'hidden', lapOn ? sign(monLap) : '') +
+    row('Arm collar → rack top', fmt(collar), sign(collar)) +
+    row('iPad overhang past desk right edge', over > 0 ? fmt(over) : `none (${fmt(-over)} inside)`, over > 0 ? 'neg' : 'pos') +
+    row('Screen center above desk', `${fmt(ch)}${chOk ? '' : ' ⚠ outside 10.5–23.5″'}`, chOk ? '' : 'neg') +
+    row('Arm reach (pole → VESA)', `${armInfo.ext.toFixed(2)} / ${ARM.maxExt}″${armInfo.reachOk && armInfo.vertOk ? '' : ' ⚠ out of reach'}`, armInfo.reachOk && armInfo.vertOk ? '' : 'neg');
+  overlapsEl.textContent = overlaps.length ? '⚠ Overlap: ' + overlaps.join('; ') : 'No overlaps';
+  overlapsEl.style.color = overlaps.length ? '' : 'var(--ok)';
+  $('ovCount').innerHTML = overlaps.length ? `<span class="neg">⚠ ${overlaps.length} overlap${overlaps.length > 1 ? 's' : ''}</span>` : '';
+
+  // object labels
+  const top = (b, dy = 0.8) => new V3((b.min.x + b.max.x) / 2, b.max.y + dy, (b.min.z + b.max.z) / 2);
+  const M = mon(), R = RACKS[S.rack], L = mac();
+  objLabel('desk', `<b>LAGKAPTEN/MITTBACK</b> ${DESK_W_CM}×${DESK_D_CM}×${TOP_T_CM} cm, top at ${DESK_H_CM} cm`, new V3(4, 0.4, DESK_D - 1));
+  objLabel('rack', `<b>Gator Elite ${S.rack}</b>${R.verified ? '' : ' (H unverified)'}<br>${dimTxt(RACK_W, R.h, RACK_D)}`, new V3(cx, rb.min.y + R.h * 0.35, rb.max.z + 0.5));
+  objLabel('dbx', `<b>dbx 286s</b> 1U, 8″ deep (assumed)`, new V3(cx, rb.min.y + 0.5, rb.max.z + 2));
+  objLabel('mon', `<b>${M.name}</b><br>${dimTxt(M.w, M.h, M.d)}`, top(mb, 0.6));
+  objLabel('ipad', `<b>iPad Pro 13″</b> ${dimTxt(IPAD.w, IPAD.h, IPAD.d)}`, top(ib, 0.6));
+  if (lapOn) objLabel('lap', `<b>MacBook Air ${S.mac}″</b> ${dimTxt(L.w, L.h, L.d)}`, top(lb, 0.5));
+  else objLabel('lap', '', new V3(), false);
+  objLabel('mix', `<b>MixPre</b> ${dimTxt(MIXPRE.w, MIXPRE.h, MIXPRE.d)}`, new V3(xcx, xb.max.y + 0.3, xb.max.z + 1.2));
+  const kb = box(units.keyboard.named.kb);
+  objLabel('kb', `<b>Magic Keyboard</b> ${dimTxt(KB.w, KB.hBack, KB.d)}`, top(kb, 0.5));
+  objLabel('pole', `<b>VIVO V101GT</b> pole ${ARM.poleH}″, collar @ ${po.state.y.toFixed(2)}″`, new V3(po.state.x, ARM.poleH + 0.8, po.state.z));
+}
+
+// ============================================================================
+// Update cycle
+// ============================================================================
+let selected = null;
+const selBox = new THREE.BoxHelper(undefined, 0xff9800); selBox.visible = false; scene.add(selBox);
+function update() {
+  units.laptop.group.visible = S.laptop;
+  updateArm();
+  scene.updateMatrixWorld(true);
+  checkCollisions();
+  updateClearances();
+  if (selected) { selBox.setFromObject(units[selected].group); selBox.visible = true; } else selBox.visible = false;
+  syncSelPanel();
+  syncButtons();
+}
+
+// ============================================================================
+// Picking, dragging (mouse + touch), rotate
+// ============================================================================
+const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function setNdc(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+}
+function pick(e) {
+  setNdc(e);
+  const meshes = [];
+  for (const u of Object.values(units)) if ((u.selectable || u.selId) && u.group.visible) meshes.push(...u.meshes);
+  const hit = raycaster.intersectObjects(meshes, false)[0];
+  return hit ? { id: hit.object.userData.unit, point: hit.point } : null;
+}
+function rayPlane(plane) { const p = new V3(); return raycaster.ray.intersectPlane(plane, p) ? p : null; }
+
+let drag = null, tap = null;
+wrap.addEventListener('pointerdown', e => {
+  if (e.target !== renderer.domElement) return;
+  if (drag) { e.stopPropagation(); return; }
+  if (!e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) { tap = null; return; }
+  const hit = pick(e);
+  if (!hit) { tap = { x: e.clientX, y: e.clientY, t: performance.now() }; return; }
+  tap = null;
+  select(hit.id);
+  const u = units[hit.id];
+  let mode = S.mode;
+  if (e.shiftKey) mode = 'lift';
+  if (e.altKey || e.ctrlKey || e.metaKey) mode = 'rotate';
+  const camDir = new V3(); camera.getWorldDirection(camDir); camDir.y = 0;
+  if (camDir.lengthSq() < 1e-6) camDir.set(0, 0, -1);
+  camDir.normalize();
+  const plane = mode === 'lift'
+    ? new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, hit.point)
+    : new THREE.Plane(new V3(0, 1, 0), -hit.point.y);
+  drag = { id: hit.id, pid: e.pointerId, mode, plane, p0: hit.point.clone(), s0: { ...u.state }, x0: e.clientX };
+  controls.enabled = false;
+  e.stopPropagation();
+}, true);
+window.addEventListener('pointermove', e => {
+  if (!drag) { hover(e); return; }
+  if (e.pointerId !== drag.pid) return;
+  const u = units[drag.id];
+  if (drag.mode === 'rotate') {
+    const deg = Math.round(drag.s0.ry / DEG - (e.clientX - drag.x0) * 0.5);
+    u.state.ry = deg * DEG; u.moved = true;
+  } else {
+    setNdc(e); const p = rayPlane(drag.plane); if (!p) return;
+    if (drag.mode === 'lift') {
+      u.state.y = drag.s0.y + (p.y - drag.p0.y);
+      if (drag.id === 'monitor') u.autoY = false; else u.moved = true;
+    } else {
+      u.state.x = drag.s0.x + (p.x - drag.p0.x);
+      u.state.z = drag.s0.z + (p.z - drag.p0.z);
+      u.moved = true;
+    }
+  }
+  apply(u); update();
+});
+function endDrag(e) {
+  if (drag && e.pointerId === drag.pid) { drag = null; controls.enabled = true; }
+  if (tap && e.isPrimary) {
+    const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y), dt = performance.now() - tap.t;
+    if (moved < 6 && dt < 400) select(null);
+    tap = null;
+  }
+}
+window.addEventListener('pointerup', endDrag);
+window.addEventListener('pointercancel', endDrag);
+function hover(e) {
+  if (e.pointerType !== 'mouse' || e.buttons || e.target !== renderer.domElement) return;
+  renderer.domElement.style.cursor = pick(e) ? 'grab' : '';
+}
+window.addEventListener('keydown', e => {
+  if (!selected || e.target.tagName === 'INPUT') return;
+  const u = units[selected];
+  if (e.key === 'r' || e.key === 'R') { rotateBy(e.shiftKey ? 15 : -15); }
+  else if (e.key === 'Escape') select(null);
+  else return;
+  apply(u); update();
+});
+
+// ============================================================================
+// Selection panel
+// ============================================================================
+const $ = id => document.getElementById(id);
+const selEl = $('sel'), inX = $('inX'), inY = $('inY'), inZ = $('inZ'), inR = $('inR');
+function select(id) { selected = id; update(); }
+function rotateBy(deg) {
+  const u = units[selected];
+  u.state.ry = Math.round(u.state.ry / DEG + deg) * DEG; u.moved = true;
+}
+function syncSelPanel() {
+  selEl.classList.toggle('hidden', !selected);
+  document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === S.mode));
+  $('modeHint').textContent = matchMedia('(pointer:fine)').matches ? 'Shift-drag lifts · Alt-drag rotates' : 'Drag the object';
+  if (!selected) return;
+  const u = units[selected], s = u.state;
+  $('selName').textContent = selected === 'monitor' ? `${mon().name} + iPad` : selected === 'laptop' ? `MacBook Air ${S.mac}″` : u.name;
+  $('lblY').textContent = selected === 'pole' ? 'Collar' : 'Y';
+  const set = (el, v) => { if (document.activeElement !== el) el.value = v; };
+  set(inX, s.x.toFixed(2)); set(inY, s.y.toFixed(2)); set(inZ, s.z.toFixed(2));
+  set(inR, (Math.round(s.ry / DEG * 10) / 10).toString());
+  $('selCm').textContent = `Pivot ${(s.x * 2.54).toFixed(1)}, ${(s.y * 2.54).toFixed(1)}, ${(s.z * 2.54).toFixed(1)} cm` +
+    (selected === 'monitor' ? ' · pivot = VESA point' : selected === 'pole' ? ' · Y = collar bottom' : ' · pivot = bottom center');
+}
+function onInput() {
+  if (!selected) return;
+  const u = units[selected], n = v => (v === '' || isNaN(+v)) ? null : +v;
+  const x = n(inX.value), y = n(inY.value), z = n(inZ.value), r = n(inR.value);
+  if (x !== null) u.state.x = x;
+  if (z !== null) u.state.z = z;
+  if (r !== null) u.state.ry = r * DEG;
+  if (y !== null && Math.abs(y - u.state.y) > 1e-6) { u.state.y = y; if (selected === 'monitor') u.autoY = false; }
+  u.moved = true; apply(u); update();
+}
+[inX, inY, inZ, inR].forEach(el => el.addEventListener('change', onInput));
+document.querySelectorAll('#modeSeg button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; syncSelPanel(); }));
+document.querySelectorAll('[data-rot]').forEach(b => b.addEventListener('click', () => {
+  if (!selected) return; rotateBy(+b.dataset.rot); apply(units[selected]); update();
+}));
+$('selReset').addEventListener('click', () => { if (selected) { resetUnit(selected); update(); } });
+$('selClose').addEventListener('click', () => select(null));
+
+// ============================================================================
+// Toolbar
+// ============================================================================
+function syncButtons() {
+  document.querySelectorAll('[data-k]').forEach(b => b.classList.toggle('on', String(S[b.dataset.k]) === b.dataset.v));
+  $('lapBtn').textContent = S.laptop ? 'Hide' : 'Show';
+  $('lblBtn').classList.toggle('on', S.labels);
+}
+document.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.k, v = k === 'mac' ? +b.dataset.v : b.dataset.v;
+  if (S[k] === v) return;
+  const oldTop = rackTopY();
+  S[k] = v;
+  if (k === 'rack') rebuild(units.rack);
+  if (k === 'mon') rebuild(units.monitor);
+  if (k === 'mac') { rebuild(units.laptop); if (!units.laptop.moved) units.laptop.state = DEFAULTS.laptop(); }
+  refreshDependents(oldTop);
+  update();
+}));
+$('lapBtn').addEventListener('click', () => { S.laptop = !S.laptop; if (!S.laptop && selected === 'laptop') selected = null; update(); });
+$('lblBtn').addEventListener('click', () => { S.labels = !S.labels; update(); });
+$('resetBtn').addEventListener('click', () => { ORDER.forEach(resetUnit); update(); });
+
+// ---- camera presets ----
+const center = new V3(DESK_W / 2, 6, DESK_D / 2);
+function setView(v) {
+  const t = center.clone();
+  const fit = Math.min(Math.max(0.95 / camera.aspect, 1), 2.0);   // back off on tall/narrow screens
+  if (v === 'top') { t.set(DESK_W / 2, 0, DESK_D / 2); camera.position.set(t.x, 95, t.z + 0.01); }
+  else if (v === 'front') { t.set(DESK_W / 2, 12, DESK_D / 2); camera.position.set(t.x, 12, DESK_D + 75); }
+  else if (v === 'side') { t.set(DESK_W / 2, 12, DESK_D / 2); camera.position.set(DESK_W + 70, 12, t.z); }
+  else if (v === 'seated') {
+    const m = units.monitor.state; t.set(m.x, m.y, m.z);
+    camera.position.set(DESK_W / 2, EYE_Y, DESK_D + 16);
+  } else { camera.position.set(DESK_W / 2 + 42, 42, DESK_D + 58); }
+  if (v !== 'seated') camera.position.sub(t).multiplyScalar(fit).add(t);
+  controls.target.copy(t); camera.lookAt(t); controls.update();
+}
+document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+
+// ---- notes ----
+$('notesBody').innerHTML =
+  `<h4 class="flag">Assumed / unverified</h4><ul>${NOTES.flags.map(t => `<li class="flag">${t}</li>`).join('')}</ul>` +
+  `<h4>Sourced</h4><ul>${NOTES.sources.map(t => `<li>${t}</li>`).join('')}</ul>` +
+  `<h4>Controls</h4><ul><li>Orbit: drag empty space (one finger / left mouse). Zoom: pinch / wheel. Pan: two fingers / right mouse.</li>` +
+  `<li>Tap or click an object to select it, then drag it. Pick Move, Lift or Rotate in the panel, or type exact values. With a mouse, Shift-drag lifts and Alt-drag rotates; R rotates 15°.</li>` +
+  `<li>Objects can't be scaled. The iPad, its side arm and the plate move with the monitor.</li></ul>`;
+if (window.innerWidth < 600) $('clear').open = false;
+
+// ============================================================================
+// Render loop: project HTML labels each frame
+// ============================================================================
+const tmp = new V3();
+function placeLabels() {
+  const w = window.innerWidth, h = window.innerHeight;
+  for (const L of labels) {
+    if (!L.show || !L.html) { L.el.style.display = 'none'; continue; }
+    tmp.copy(L.pos).project(camera);
+    if (tmp.z > 1 || tmp.z < -1) { L.el.style.display = 'none'; continue; }
+    L.el.style.display = '';
+    const x = (tmp.x + 1) / 2 * w, y = (1 - tmp.y) / 2 * h;
+    L.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+  }
+}
+setView('default');
+update();
+(function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  renderer.render(scene, camera);
+  placeLabels();
+})();
+})();
+</script>
+</body>
+</html>
