@@ -42,6 +42,7 @@
            border-radius:6px; padding:4px 7px; cursor:pointer; touch-action:manipulation; }
   button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   button:active { transform:translateY(1px); }
+  button:disabled { opacity:.4; cursor:default; transform:none; }
   #sel { width:min(420px, 100%); }
   #sel.hidden { display:none; }
   #sel .row { display:flex; gap:4px; align-items:center; flex-wrap:wrap; margin:3px 0; }
@@ -108,7 +109,7 @@
     <div class="grp"><span>Monitor</span><button data-k="mon" data-v="a" title="ASUS ProArt PA32QCV">a</button><button data-k="mon" data-v="b" title="INNOCN 34C1U">b</button><button data-k="mon" data-v="c" title="Dell U3425WE">c</button><button data-k="mon" data-v="d" title="Dell U2724D (current)">d·now</button></div>
     <div class="grp"><span>MacBook</span><button data-k="mac" data-v="13">13″</button><button data-k="mac" data-v="15">15″</button><button id="lapBtn">Hide</button></div>
     <div class="grp"><span>View</span><button data-view="top">Top</button><button data-view="front">Front</button><button data-view="side">Side</button><button data-view="seated">Seated</button></div>
-    <div class="grp"><button id="lblBtn" class="on">Labels</button><button id="resetBtn">Reset layout</button></div>
+    <div class="grp"><button id="undoBtn" title="Undo (Ctrl/⌘+Z)">↶ Undo</button><button id="redoBtn" title="Redo (Ctrl/⌘+Shift+Z)">↷ Redo</button><button id="lblBtn" class="on">Labels</button><button id="resetBtn">Reset layout</button></div>
   </div>
 </div>
 
@@ -719,6 +720,40 @@ function update() {
 }
 
 // ============================================================================
+// Undo / redo: snapshots of toggles + object positions (camera excluded)
+// ============================================================================
+const undoStack = [], redoStack = [], UNDO_MAX = 100;
+function snapshot() {
+  const o = { S: { rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop }, units: {} };
+  for (const id of ORDER) { const u = units[id]; o.units[id] = { state: { ...u.state }, moved: u.moved, autoY: u.autoY }; }
+  return JSON.stringify(o);
+}
+function commit(before) {
+  if (snapshot() === before) return;
+  undoStack.push(before); if (undoStack.length > UNDO_MAX) undoStack.shift();
+  redoStack.length = 0; syncUndo();
+}
+const undoable = fn => (...args) => { const before = snapshot(); fn(...args); commit(before); };
+function restore(json) {
+  const o = JSON.parse(json);
+  const changed = k => S[k] !== o.S[k];
+  const rk = changed('rack'), mn = changed('mon'), mc = changed('mac');
+  Object.assign(S, o.S);
+  if (rk) rebuild(units.rack);
+  if (mn) rebuild(units.monitor);
+  if (mc) rebuild(units.laptop);
+  for (const id of ORDER) { const u = units[id], v = o.units[id]; u.state = { ...v.state }; u.moved = v.moved; u.autoY = v.autoY; apply(u); }
+  if (!S.laptop && selected === 'laptop') selected = null;
+  update();
+}
+function undo() { if (!undoStack.length || drag) return; redoStack.push(snapshot()); restore(undoStack.pop()); syncUndo(); }
+function redo() { if (!redoStack.length || drag) return; undoStack.push(snapshot()); restore(redoStack.pop()); syncUndo(); }
+function syncUndo() {
+  document.getElementById('undoBtn').disabled = !undoStack.length;
+  document.getElementById('redoBtn').disabled = !redoStack.length;
+}
+
+// ============================================================================
 // Picking, dragging (mouse + touch), rotate
 // ============================================================================
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
@@ -755,7 +790,7 @@ wrap.addEventListener('pointerdown', e => {
   const plane = mode === 'lift'
     ? new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, hit.point)
     : new THREE.Plane(new V3(0, 1, 0), -hit.point.y);
-  drag = { id: hit.id, pid: e.pointerId, mode, plane, p0: hit.point.clone(), s0: { ...u.state }, x0: e.clientX };
+  drag = { id: hit.id, pid: e.pointerId, mode, plane, p0: hit.point.clone(), s0: { ...u.state }, x0: e.clientX, before: snapshot() };
   controls.enabled = false;
   e.stopPropagation();
 }, true);
@@ -780,7 +815,7 @@ window.addEventListener('pointermove', e => {
   apply(u); update();
 });
 function endDrag(e) {
-  if (drag && e.pointerId === drag.pid) { drag = null; controls.enabled = true; }
+  if (drag && e.pointerId === drag.pid) { const before = drag.before; drag = null; controls.enabled = true; commit(before); }
   if (tap && e.isPrimary) {
     const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y), dt = performance.now() - tap.t;
     if (moved < 6 && dt < 400) select(null);
@@ -794,12 +829,13 @@ function hover(e) {
   renderer.domElement.style.cursor = pick(e) ? 'grab' : '';
 }
 window.addEventListener('keydown', e => {
-  if (!selected || e.target.tagName === 'INPUT') return;
-  const u = units[selected];
-  if (e.key === 'r' || e.key === 'R') { rotateBy(e.shiftKey ? 15 : -15); }
+  if (e.target.tagName === 'INPUT') return;
+  const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
+  if (mod && key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && key === 'y') { e.preventDefault(); redo(); return; }
+  if (!selected) return;
+  if (key === 'r' && !mod) undoable(() => { rotateBy(e.shiftKey ? 15 : -15); apply(units[selected]); update(); })();
   else if (e.key === 'Escape') select(null);
-  else return;
-  apply(u); update();
 });
 
 // ============================================================================
@@ -826,7 +862,7 @@ function syncSelPanel() {
   $('selCm').textContent = `Pivot ${(s.x * 2.54).toFixed(1)}, ${(s.y * 2.54).toFixed(1)}, ${(s.z * 2.54).toFixed(1)} cm` +
     (selected === 'monitor' ? ' · pivot = VESA point' : selected === 'pole' ? ' · Y = collar bottom' : ' · pivot = bottom center');
 }
-function onInput() {
+const onInput = undoable(() => {
   if (!selected) return;
   const u = units[selected], n = v => (v === '' || isNaN(+v)) ? null : +v;
   const x = n(inX.value), y = n(inY.value), z = n(inZ.value), r = n(inR.value);
@@ -835,13 +871,13 @@ function onInput() {
   if (r !== null) u.state.ry = r * DEG;
   if (y !== null && Math.abs(y - u.state.y) > 1e-6) { u.state.y = y; if (selected === 'monitor') u.autoY = false; }
   u.moved = true; apply(u); update();
-}
+});
 [inX, inY, inZ, inR].forEach(el => el.addEventListener('change', onInput));
 document.querySelectorAll('#modeSeg button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; syncSelPanel(); scheduleSave(); }));
-document.querySelectorAll('[data-rot]').forEach(b => b.addEventListener('click', () => {
+document.querySelectorAll('[data-rot]').forEach(b => b.addEventListener('click', undoable(() => {
   if (!selected) return; rotateBy(+b.dataset.rot); apply(units[selected]); update();
-}));
-$('selReset').addEventListener('click', () => { if (selected) { resetUnit(selected); update(); } });
+})));
+$('selReset').addEventListener('click', undoable(() => { if (selected) { resetUnit(selected); update(); } }));
 $('selClose').addEventListener('click', () => select(null));
 
 // ============================================================================
@@ -852,7 +888,7 @@ function syncButtons() {
   $('lapBtn').textContent = S.laptop ? 'Hide' : 'Show';
   $('lblBtn').classList.toggle('on', S.labels);
 }
-document.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', () => {
+document.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', undoable(() => {
   const k = b.dataset.k, v = k === 'mac' ? +b.dataset.v : b.dataset.v;
   if (S[k] === v) return;
   const oldTop = rackTopY();
@@ -862,10 +898,13 @@ document.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', (
   if (k === 'mac') { rebuild(units.laptop); if (!units.laptop.moved) units.laptop.state = DEFAULTS.laptop(); }
   refreshDependents(oldTop);
   update();
-}));
-$('lapBtn').addEventListener('click', () => { S.laptop = !S.laptop; if (!S.laptop && selected === 'laptop') selected = null; update(); });
+})));
+$('lapBtn').addEventListener('click', undoable(() => { S.laptop = !S.laptop; if (!S.laptop && selected === 'laptop') selected = null; update(); }));
 $('lblBtn').addEventListener('click', () => { S.labels = !S.labels; update(); });
-$('resetBtn').addEventListener('click', () => { ORDER.forEach(resetUnit); setView('default'); update(); });
+$('resetBtn').addEventListener('click', undoable(() => { ORDER.forEach(resetUnit); setView('default'); update(); }));
+$('undoBtn').addEventListener('click', undo);
+$('redoBtn').addEventListener('click', redo);
+syncUndo();
 
 // ---- camera presets ----
 const center = new V3((DESK_W + ALEX.gap + ALEX.w) / 2, -6, DESK_D / 2);
@@ -891,6 +930,7 @@ $('notesBody').innerHTML =
   `<h4>Controls</h4><ul><li>Orbit: drag empty space (one finger / left mouse). Zoom: pinch / wheel. Pan: two fingers / right mouse.</li>` +
   `<li>Tap or click an object to select it, then drag it. Pick Move, Lift or Rotate in the panel, or type exact values. With a mouse, Shift-drag lifts and Alt-drag rotates; R rotates 15°.</li>` +
   `<li>Your layout, toggles and view are saved in this browser and restored next visit. Reset layout starts over.</li>
+  <li>Undo / Redo step back through moves, rotations and toggles (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z). Camera moves aren't undone.</li>
   <li>Objects can't be scaled. The iPad, its side arm and the plate move with the monitor.</li></ul>`;
 if (window.innerWidth < 600) $('clear').open = false;
 
