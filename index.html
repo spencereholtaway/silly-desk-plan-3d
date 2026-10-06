@@ -14,20 +14,24 @@
   #wrap canvas { display:block; touch-action:none; }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 8px;
            box-shadow:0 1px 4px rgba(0,0,0,.08); }
-  #hud { position:fixed; top:max(8px,env(safe-area-inset-top)); left:8px; right:8px; display:flex; gap:6px;
-         align-items:flex-start; justify-content:space-between; pointer-events:none; }
+  #hud { position:fixed; top:max(8px,env(safe-area-inset-top)); left:8px; right:8px; display:flex; flex-direction:column;
+         gap:6px; align-items:flex-start; pointer-events:none; }
   #hud > * { pointer-events:auto; }
-  details summary { cursor:pointer; font-weight:600; list-style:none; user-select:none; }
+  #menuRow { display:flex; gap:6px; align-items:center; }
+  #menuBtn { box-shadow:0 1px 4px rgba(0,0,0,.08); font-weight:600; }
+  .pill { color:var(--warn); font-weight:600; border-color:#e6b3b3; background:#fff5f5; }
+  #menu { width:min(380px, calc(100vw - 16px)); max-height:calc(100vh - 230px); overflow:auto; }
+  #menu .row.top { display:flex; justify-content:space-between; align-items:center; }
+  #menu h4 { margin:8px 0 0; font-size:12px; }
+  details summary { cursor:pointer; font-weight:600; list-style:none; user-select:none; margin-top:8px; }
   details summary::-webkit-details-marker { display:none; }
   details summary::before { content:"▸ "; color:var(--muted); }
   details[open] summary::before { content:"▾ "; }
-  #clear { max-width:min(340px, calc(100vw - 16px)); }
-  #clear table { border-collapse:collapse; margin-top:4px; }
-  #clear td { padding:1px 0; vertical-align:top; }
-  #clear td.v { text-align:right; padding-left:10px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  #clrTable { border-collapse:collapse; margin-top:4px; width:100%; }
+  #clrTable td { padding:1px 0; vertical-align:top; }
+  #clrTable td.v { text-align:right; padding-left:10px; white-space:nowrap; font-variant-numeric:tabular-nums; }
   .neg { color:var(--warn); font-weight:600; } .pos { color:var(--ok); }
   #overlaps { margin-top:4px; color:var(--warn); font-weight:600; }
-  #notes { max-width:min(380px, calc(100vw - 16px)); max-height:60vh; overflow:auto; }
   #notes h4 { margin:6px 0 2px; font-size:12px; }
   #notes ul { margin:0; padding-left:16px; } #notes li { margin:2px 0; }
   #notes .flag { color:#a15c00; }
@@ -60,7 +64,7 @@
   @media (max-width:600px) {
     .lbl { font-size:9px; padding:0 3px; }
     .lbl .d { display:none; }
-    #clear, #notes { font-size:11px; }
+    #menu { font-size:11px; }
     button { padding:4px 6px; }
   }
 </style>
@@ -70,16 +74,21 @@
 <div id="labels"></div>
 
 <div id="hud">
-  <details id="clear" class="panel" open>
-    <summary><span id="title">Desk Plan 3D</span> · clearances <span id="ovCount"></span></summary>
+  <div id="menuRow">
+    <button id="menuBtn" aria-expanded="false" aria-controls="menu">☰ Menu</button>
+    <button id="ovPill" class="pill" hidden></button>
+  </div>
+  <div id="menu" class="panel" hidden>
+    <div class="row top"><b id="title">Desk Plan 3D</b><button id="menuClose" aria-label="Close menu">✕</button></div>
     <div class="sub">Origin: back-left corner of desktop. X→right, Y↑, Z→you. Inches (cm).</div>
+    <h4>Clearances</h4>
     <table id="clrTable"></table>
     <div id="overlaps"></div>
-  </details>
-  <details id="notes" class="panel">
-    <summary>⚠ Assumptions &amp; sources</summary>
-    <div id="notesBody"></div>
-  </details>
+    <details id="notes">
+      <summary>⚠ Assumptions &amp; sources</summary>
+      <div id="notesBody"></div>
+    </details>
+  </div>
 </div>
 
 <div id="bottom">
@@ -109,7 +118,7 @@
     <div class="grp"><span>Monitor</span><button data-k="mon" data-v="a" title="ASUS ProArt PA32QCV">a</button><button data-k="mon" data-v="b" title="INNOCN 34C1U">b</button><button data-k="mon" data-v="c" title="Dell U3425WE">c</button><button data-k="mon" data-v="d" title="Dell U2724D (current)">d·now</button></div>
     <div class="grp"><span>MacBook</span><button data-k="mac" data-v="13">13″</button><button data-k="mac" data-v="15">15″</button><button id="lapBtn">Hide</button></div>
     <div class="grp"><span>View</span><button data-view="top">Top</button><button data-view="front">Front</button><button data-view="side">Side</button><button data-view="seated">Seated</button></div>
-    <div class="grp"><button id="undoBtn" title="Undo (Ctrl/⌘+Z)">↶ Undo</button><button id="redoBtn" title="Redo (Ctrl/⌘+Shift+Z)">↷ Redo</button><button id="lblBtn" class="on">Labels</button><button id="resetBtn">Reset layout</button></div>
+    <div class="grp"><button id="undoBtn" title="Undo (Ctrl/⌘+Z)">↶ Undo</button><button id="redoBtn" title="Redo (Ctrl/⌘+Shift+Z)">↷ Redo</button><button id="lblBtn">Labels</button><button id="wallBtn" class="on">Wall</button><button id="resetBtn">Reset layout</button></div>
   </div>
 </div>
 
@@ -170,6 +179,10 @@ const KB_FRONT_GAP = 2;
 // ---- 9. IKEA ALEX drawer unit on castors (wide), on the floor right of the desk ----
 const ALEX = { w: 67 * CM, d: 48 * CM, h: 66 * CM, drawers: 6, castor: 1.6, gap: 1 };   // castor height, gap assumed
 
+// ---- Back wall ----
+const WALL_GAP = 1;          // desk back edge to wall, assumed
+const WALL_Z = -WALL_GAP, WALL_H = 96;   // 8 ft ceiling, assumed; height measured from the floor
+
 // ---- Seated eye height, 6'5" person ----------------------------------------
 const STATURE = 77;
 const SEAT_H = 0.25 * STATURE + 1;          // popliteal height + shoe, rough
@@ -190,7 +203,8 @@ const NOTES = {
     `Monitor height rule: bottom edge 1″ above the tallest fixed rack-top item (MixPre, laptop deck). The open laptop lid isn't counted, so its collision with the monitor shows.`,
     `ergoiuon side-arm geometry and MagFlött plate (4.7 × 4.7 × 0.25″) are assumed; iPad front is set flush with the monitor's front.`,
     `MacBook base/lid thickness split (60/40 of closed height) and lid length (= depth) are assumed. Laptop and MixPre fronts are flush with the rack front.`,
-    `ALEX: ${ALEX.gap}″ gap from the desk's right edge, back flush with the desk back, ${ALEX.castor}″ castor height and equal drawer heights are assumed.`,
+    `ALEX (fixed in place): ${ALEX.gap}″ gap from the desk's right edge, back flush with the desk back, ${ALEX.castor}″ castor height and equal drawer heights are assumed.`,
+    `Back wall ${WALL_GAP}″ behind the desk's back edge (WALL_GAP constant) and 8 ft tall are assumed. The arm clamp's spine sits in that gap.`,
     `Seated eye height (${(EYE_Y + DESK_H).toFixed(1)}″ above floor, ${EYE_Y.toFixed(1)}″ above desk) is an anthropometric estimate for a 6′5″ person on a typical chair.`,
   ],
   sources: [
@@ -284,7 +298,7 @@ function disposeTree(o) {
 // ============================================================================
 // Units (movable groups)
 // ============================================================================
-const S = { rack: '4U', mon: 'd', mac: 13, laptop: true, labels: true, mode: 'move' };
+const S = { rack: '4U', mon: 'd', mac: 13, laptop: true, labels: false, wall: true, mode: 'move' };
 const units = {};
 function defUnit(id, name, build, opts = {}) {
   const u = Object.assign({ id, name, build, group: new THREE.Group(), meshes: [], colliders: [], named: {},
@@ -339,10 +353,21 @@ defUnit('rack', 'Gator Elite rack', u => {
 });
 
 // ---- Monitor arm pole (pivot = pole axis at desk surface; state.y = collar bottom) ----
+defUnit('wall', 'Back wall', u => {
+  const w = 160, cx = (DESK_W + ALEX.gap + ALEX.w) / 2, y0 = -DESK_H;
+  // single-sided plane facing the room, so it vanishes when you orbit behind it
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, WALL_H), new THREE.MeshLambertMaterial({ color: 0xe9e5de }));
+  m.position.set(cx, y0 + WALL_H / 2, WALL_Z);
+  m.userData = { base: new THREE.Color(0xe9e5de), unit: 'wall', part: 'wall:wall' };
+  u.group.add(m); u.meshes.push(m);
+  addBox(u, 'wall', w, 3.5, 0.5, 0xf7f7f5, cx, y0 + 1.75, WALL_Z + 0.25, null, { collider: false });
+  addCollider(u, 'wall', w, WALL_H, 0.5, cx, y0 + WALL_H / 2, WALL_Z - 0.25, null, 'Back wall');
+}, { selectable: false });
+
 defUnit('pole', 'VIVO V101GT pole', u => {
   const dark = 0x3a3d42, T = TOP_T;
   addBox(u, 'clamp', CLAMP_W, 0.3, CLAMP_D, dark, 0, 0.15, 0, null, { collider: false });
-  addBox(u, 'clamp', CLAMP_W, T + 0.9, 0.5, dark, 0, -T / 2 - 0.15, -CLAMP_D / 2 - 0.25, null, { collider: false });
+  addBox(u, 'clamp', CLAMP_W, T + 0.9, 0.5, dark, 0, -T / 2 - 0.15, -CLAMP_D / 2 - 0.25, null, { label: 'Arm clamp' });
   addBox(u, 'clamp', CLAMP_W, 0.4, CLAMP_D + 0.5, dark, 0, -T - 0.4, -0.25, null, { collider: false });
   addCyl(u, 'clamp', 0.25, 1.4, 0x888888, 0, -T - 1.1, 0.3);
   addCyl(u, 'pole', ARM.poleR, ARM.poleH - 0.3, 0xa9adb3, 0, 0.3 + (ARM.poleH - 0.3) / 2, 0);
@@ -438,7 +463,7 @@ defUnit('alex', 'IKEA ALEX drawers', u => {
   for (const sx of [-1, 1]) for (const sz of [-1, 1])
     addCyl(u, 'alex', A.castor / 2, 0.8, 0x333333, sx * (A.w / 2 - 2), A.castor / 2, sz * (A.d / 2 - 2), null, 'x');
   addCollider(u, 'alex', A.w, A.h, A.d, 0, A.h / 2, 0, null, 'ALEX drawers');
-});
+}, { selectable: false });   // fixed in place
 
 // ---- defaults ----
 const DEFAULTS = {
@@ -450,7 +475,7 @@ const DEFAULTS = {
   keyboard: () => ({ x: DESK_W / 2, y: 0, z: DESK_D - KB_FRONT_GAP - KB.d / 2, ry: 0 }),
   alex: () => ({ x: DESK_W + ALEX.gap + ALEX.w / 2, y: -DESK_H, z: ALEX.d / 2, ry: 0 }),
 };
-const ORDER = ['rack', 'pole', 'monitor', 'laptop', 'mixpre', 'keyboard', 'alex'];
+const ORDER = ['rack', 'pole', 'monitor', 'laptop', 'mixpre', 'keyboard'];
 function resetUnit(id) {
   const u = units[id]; u.state = DEFAULTS[id](); u.moved = false; if (id === 'monitor') u.autoY = true; apply(u);
 }
@@ -485,13 +510,14 @@ if (saved && saved.S) {
   if (o.mon in MONITORS) S.mon = o.mon;
   if (o.mac in MACS) S.mac = +o.mac;
   if (typeof o.laptop === 'boolean') S.laptop = o.laptop;
-  if (typeof o.labels === 'boolean') S.labels = o.labels;
+  if (saved.v >= 2 && typeof o.labels === 'boolean') S.labels = o.labels;
+  if (typeof o.wall === 'boolean') S.wall = o.wall;
   if (['move', 'lift', 'rotate'].includes(o.mode)) S.mode = o.mode;
 }
 let saveTimer = 0;
 function saveNow() {
   clearTimeout(saveTimer); saveTimer = 0;
-  const data = { S: { rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, mode: S.mode }, units: {},
+  const data = { v: 2, S: { rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, wall: S.wall, mode: S.mode }, units: {},
     cam: { p: camera.position.toArray(), t: controls.target.toArray() } };
   for (const id of ORDER) { const u = units[id]; data.units[id] = { state: u.state, moved: u.moved, autoY: u.autoY }; }
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable: just don't persist */ }
@@ -503,6 +529,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) saveN
 Object.values(units).forEach(u => u.build(u));
 units.monitor.autoY = true;
 ORDER.forEach(resetUnit);
+units.alex.state = DEFAULTS.alex(); apply(units.alex);
 if (saved && saved.units) for (const id of ORDER) {
   const v = saved.units[id], st = v && v.state;
   if (!st || !['x', 'y', 'z', 'ry'].every(k => Number.isFinite(st[k]))) continue;
@@ -523,24 +550,40 @@ function updateArm() {
   const S0 = new V3(P.x, P.y + COLLAR_H / 2, P.z);
   const fwd = new V3(Math.sin(Mo.ry), 0, Math.cos(Mo.ry));
   const vesa = new V3(Mo.x, Mo.y, Mo.z);
-  const E = vesa.clone().addScaledVector(fwd, -ARM.head);
-  const dy = E.y - S0.y, vertOk = Math.abs(dy) <= ARM.L2;
-  const L1 = ARM.L1, L2h = Math.sqrt(Math.max(0, ARM.L2 * ARM.L2 - dy * dy));
-  let dx = E.x - S0.x, dz = E.z - S0.z, d = Math.hypot(dx, dz);
-  const dir = d > 1e-6 ? new V3(dx / d, 0, dz / d) : new V3(1, 0, 0);
-  let elbow, reachOk = true;
-  if (d >= L1 + L2h) { reachOk = d <= L1 + L2h + 1e-6; elbow = S0.clone().addScaledVector(dir, L1); }
-  else {
-    const a = (L1 * L1 - L2h * L2h + d * d) / (2 * Math.max(d, 1e-6));
-    const h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
-    const perp = new V3(-dir.z, 0, dir.x);
-    const base = S0.clone().addScaledVector(dir, a);
-    const e1 = base.clone().addScaledVector(perp, h), e2 = base.clone().addScaledVector(perp, -h);
-    elbow = e1.z < e2.z ? e1 : e2;     // fold the elbow toward the back
+  const L1 = ARM.L1, minZ = S.wall ? WALL_Z + 0.65 : -Infinity;
+  // The tilt head swivels, so try head angles and both elbow folds. Keep what clears
+  // the wall, preferring the elbow tucked back and the head pointing straight back.
+  let best = null;
+  for (let deg = -75; deg <= 75; deg += 5) {
+    const a = deg * DEG;
+    const back = new V3(-Math.sin(Mo.ry + a), 0, -Math.cos(Mo.ry + a));
+    const E = vesa.clone().addScaledVector(back, ARM.head);
+    const dy = E.y - S0.y;
+    if (Math.abs(dy) > ARM.L2) continue;
+    const L2h = Math.sqrt(ARM.L2 * ARM.L2 - dy * dy);
+    const dx = E.x - S0.x, dz = E.z - S0.z, d = Math.hypot(dx, dz);
+    if (d > L1 + L2h || d < Math.abs(L1 - L2h) || d < 1e-6) continue;
+    const dir = new V3(dx / d, 0, dz / d), perp = new V3(-dir.z, 0, dir.x);
+    const k = (L1 * L1 - L2h * L2h + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - k * k));
+    const base = S0.clone().addScaledVector(dir, k);
+    for (const sgn of [1, -1]) {
+      const elbow = base.clone().addScaledVector(perp, sgn * h);
+      if (elbow.z < minZ || E.z < minZ) continue;
+      const score = elbow.z + Math.abs(deg) * 0.02;
+      if (!best || score < best.score) best = { score, elbow, E };
+    }
   }
+  let elbow, E, reachOk = !!best;
+  if (best) ({ elbow, E } = best);
+  else {   // nothing fits: point straight back and stretch toward the head
+    E = vesa.clone().addScaledVector(fwd, -ARM.head);
+    const dir = new V3(E.x - S0.x, 0, E.z - S0.z); if (dir.lengthSq() < 1e-9) dir.set(1, 0, 0);
+    elbow = S0.clone().addScaledVector(dir.normalize(), L1);
+  }
+  const vertOk = reachOk;
   bar(u, 'seg1', S0, elbow, 1.3, 0x45484e, 'Arm (lower)');
   bar(u, 'seg2', elbow, E, 1.3, 0x45484e, 'Arm (pneumatic)');
-  bar(u, 'head', E, vesa.clone().addScaledVector(fwd, -0.25), 1.0, 0x5a5d63, 'Arm tilt head');
+  bar(u, 'head', E, vesa.clone().addScaledVector(fwd, -0.3), 1.0, 0x5a5d63, 'Arm tilt head');
   const ext = Math.hypot(vesa.x - P.x, vesa.z - P.z);
   armInfo = { ext, reachOk: reachOk && ext <= ARM.maxExt, vertOk };
 }
@@ -647,6 +690,11 @@ function updateClearances() {
   const lb = lapOn ? box(lp.named.lid).union(box(lp.named.base)) : null;
 
   const rackFront = DESK_D - rb.max.z;
+  let wallGap = Infinity;
+  for (const u of Object.values(units)) {
+    if (u.id === 'wall' || !u.group.visible) continue;
+    for (const c of u.colliders) wallGap = Math.min(wallGap, box(c).min.z - WALL_Z);
+  }
   const monMix = mb.min.y - xb.max.y;
   const monLap = lapOn ? mb.min.y - lb.max.y : NaN;
   const collar = po.state.y - rb.max.y;
@@ -673,6 +721,7 @@ function updateClearances() {
   const sign = v => v < 0 ? 'neg' : 'pos';
   clrTable.innerHTML =
     row('Rack front → desk front', fmt(rackFront), sign(rackFront)) +
+    (S.wall ? row('Wall → nearest object behind desk', fmt(wallGap), sign(wallGap)) : '') +
     row('Monitor bottom → MixPre top', fmt(monMix), sign(monMix)) +
     row('Monitor bottom → laptop top', lapOn ? fmt(monLap) : 'hidden', lapOn ? sign(monLap) : '') +
     row('Arm collar → rack top', fmt(collar), sign(collar)) +
@@ -683,7 +732,8 @@ function updateClearances() {
     row('Arm reach (pole → VESA)', `${armInfo.ext.toFixed(2)} / ${ARM.maxExt}″${armInfo.reachOk && armInfo.vertOk ? '' : ' ⚠ out of reach'}`, armInfo.reachOk && armInfo.vertOk ? '' : 'neg');
   overlapsEl.textContent = overlaps.length ? '⚠ Overlap: ' + overlaps.join('; ') : 'No overlaps';
   overlapsEl.style.color = overlaps.length ? '' : 'var(--ok)';
-  $('ovCount').innerHTML = overlaps.length ? `<span class="neg">⚠ ${overlaps.length} overlap${overlaps.length > 1 ? 's' : ''}</span>` : '';
+  $('ovPill').hidden = !overlaps.length;
+  $('ovPill').textContent = `⚠ ${overlaps.length} overlap${overlaps.length > 1 ? 's' : ''}`;
 
   // object labels
   const top = (b, dy = 0.8) => new V3((b.min.x + b.max.x) / 2, b.max.y + dy, (b.min.z + b.max.z) / 2);
@@ -709,6 +759,7 @@ let selected = null;
 const selBox = new THREE.BoxHelper(undefined, 0xff9800); selBox.visible = false; scene.add(selBox);
 function update() {
   units.laptop.group.visible = S.laptop;
+  units.wall.group.visible = S.wall;
   updateArm();
   scene.updateMatrixWorld(true);
   checkCollisions();
@@ -887,6 +938,7 @@ function syncButtons() {
   document.querySelectorAll('[data-k]').forEach(b => b.classList.toggle('on', String(S[b.dataset.k]) === b.dataset.v));
   $('lapBtn').textContent = S.laptop ? 'Hide' : 'Show';
   $('lblBtn').classList.toggle('on', S.labels);
+  $('wallBtn').classList.toggle('on', S.wall);
 }
 document.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', undoable(() => {
   const k = b.dataset.k, v = k === 'mac' ? +b.dataset.v : b.dataset.v;
@@ -901,6 +953,7 @@ document.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', u
 })));
 $('lapBtn').addEventListener('click', undoable(() => { S.laptop = !S.laptop; if (!S.laptop && selected === 'laptop') selected = null; update(); }));
 $('lblBtn').addEventListener('click', () => { S.labels = !S.labels; update(); });
+$('wallBtn').addEventListener('click', () => { S.wall = !S.wall; update(); });
 $('resetBtn').addEventListener('click', undoable(() => { ORDER.forEach(resetUnit); setView('default'); update(); }));
 $('undoBtn').addEventListener('click', undo);
 $('redoBtn').addEventListener('click', redo);
@@ -932,7 +985,13 @@ $('notesBody').innerHTML =
   `<li>Your layout, toggles and view are saved in this browser and restored next visit. Reset layout starts over.</li>
   <li>Undo / Redo step back through moves, rotations and toggles (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z). Camera moves aren't undone.</li>
   <li>Objects can't be scaled. The iPad, its side arm and the plate move with the monitor.</li></ul>`;
-if (window.innerWidth < 600) $('clear').open = false;
+function setMenu(open) {
+  $('menu').hidden = !open; $('menuBtn').setAttribute('aria-expanded', open);
+  $('menuBtn').classList.toggle('on', open);
+}
+$('menuBtn').addEventListener('click', () => setMenu($('menu').hidden));
+$('menuClose').addEventListener('click', () => setMenu(false));
+$('ovPill').addEventListener('click', () => setMenu(true));
 
 // ============================================================================
 // Render loop: project HTML labels each frame
