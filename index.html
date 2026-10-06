@@ -608,7 +608,8 @@ function bar(u, part, A, B, t, color, label) {
 // ============================================================================
 // Collisions: oriented-box SAT on every collider pair from different units
 // ============================================================================
-const SKIP = new Set(['arm|monitor', 'monitor|arm', 'arm|pole', 'pole|arm']);
+// The arm clamp may grip any desk edge, so pole/clamp vs desk (top and trestles) never counts.
+const SKIP = new Set(['arm|monitor', 'monitor|arm', 'arm|pole', 'pole|arm', 'pole|desk', 'desk|pole']);
 const EPS = 0.02;
 function obb(m) {
   const e = m.matrixWorld.elements, p = m.geometry.parameters;
