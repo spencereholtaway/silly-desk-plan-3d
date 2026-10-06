@@ -43,12 +43,19 @@
   .grp { display:flex; align-items:center; gap:3px; }
   .grp > span { color:var(--muted); font-size:11px; margin-right:1px; }
   button { font:inherit; font-size:12px; border:1px solid var(--line); background:#fff; color:var(--ink);
-           border-radius:6px; padding:4px 7px; cursor:pointer; touch-action:manipulation; }
+           border-radius:6px; padding:4px 7px; cursor:pointer; touch-action:manipulation; white-space:nowrap; }
   button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   button:active { transform:translateY(1px); }
   button:disabled { opacity:.4; cursor:default; transform:none; }
   #sel { width:min(420px, 100%); }
   #sel.hidden { display:none; }
+  #room { width:min(420px, 100%); }
+  #room .row.top { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .slide { display:flex; align-items:center; gap:6px; margin:4px 0; }
+  .slide > span { width:34px; color:var(--muted); font-size:11px; }
+  .slide input[type=range] { flex:1; min-width:0; accent-color:var(--accent); }
+  .slide output { width:96px; text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
+  .slide button { width:28px; padding:3px 0; }
   #sel .row { display:flex; gap:4px; align-items:center; flex-wrap:wrap; margin:3px 0; }
   #sel .row.top { justify-content:space-between; flex-wrap:nowrap; }
   #sel label { display:flex; align-items:center; gap:3px; font-size:11px; color:var(--muted); }
@@ -114,13 +121,23 @@
     </div>
     <div class="sub" id="selCm"></div>
   </div>
+  <div id="room" class="panel" hidden>
+    <div class="row top"><b>Distance from the wall</b><button id="roomClose" aria-label="Close">✕</button></div>
+    <div class="slide"><span>Desk</span><button data-nudge="deskWall" data-d="-0.25" aria-label="Desk closer">−</button>
+      <input id="deskWall" type="range" min="0" max="24" step="0.25" aria-label="Desk to wall">
+      <button data-nudge="deskWall" data-d="0.25" aria-label="Desk further">+</button><output id="deskWallOut"></output></div>
+    <div class="slide"><span>ALEX</span><button data-nudge="alexWall" data-d="-0.25" aria-label="ALEX closer">−</button>
+      <input id="alexWall" type="range" min="0" max="24" step="0.25" aria-label="ALEX to wall">
+      <button data-nudge="alexWall" data-d="0.25" aria-label="ALEX further">+</button><output id="alexWallOut"></output></div>
+    <div class="sub">From each back edge to the wall.</div>
+  </div>
   <div id="bar" class="panel">
     <div class="grp"><span>Rack</span><button data-k="rack" data-v="2U">2U</button><button data-k="rack" data-v="4U">4U</button></div>
     <div class="grp"><span>Monitor</span><button data-k="mon" data-v="a" title="ASUS ProArt PA32QCV">a</button><button data-k="mon" data-v="b" title="INNOCN 34C1U">b</button><button data-k="mon" data-v="c" title="Dell U3425WE">c</button><button data-k="mon" data-v="d" title="Dell U2724D (current)">d·now</button></div>
     <div class="grp"><span>MacBook</span><button data-k="mac" data-v="13">13″</button><button data-k="mac" data-v="15">15″</button><button id="lapBtn">Hide</button></div>
     <div class="grp"><span>iPad</span><button data-k="ipad" data-v="left" title="Left of monitor">←</button><button data-k="ipad" data-v="above" title="Above monitor">↑</button><button data-k="ipad" data-v="below" title="Below monitor">↓</button><button data-k="ipad" data-v="right" title="Right of monitor">→</button></div>
     <div class="grp"><span>View</span><button data-view="top">Top</button><button data-view="front">Front</button><button data-view="side">Side</button><button data-view="seated">Seated</button></div>
-    <div class="grp"><button id="undoBtn" title="Undo (Ctrl/⌘+Z)">↶ Undo</button><button id="redoBtn" title="Redo (Ctrl/⌘+Shift+Z)">↷ Redo</button><button id="lblBtn">Labels</button><button id="wallBtn" class="on">Wall</button><button id="resetBtn">Reset layout</button></div>
+    <div class="grp"><button id="undoBtn" title="Undo (Ctrl/⌘+Z)">↶ Undo</button><button id="redoBtn" title="Redo (Ctrl/⌘+Shift+Z)">↷ Redo</button><button id="lblBtn">Labels</button><button id="wallBtn" class="on">Wall</button><button id="roomBtn">Wall gaps</button><button id="resetBtn">Reset layout</button></div>
   </div>
 </div>
 
@@ -182,8 +199,9 @@ const KB_FRONT_GAP = 2;
 const ALEX = { w: 67 * CM, d: 48 * CM, h: 66 * CM, drawers: 6, castor: 1.6, gap: 1 };   // castor height, gap assumed
 
 // ---- Back wall ----
-const WALL_GAP = 1;          // desk back edge to wall, assumed
-const WALL_Z = -WALL_GAP, WALL_H = 96;   // 8 ft ceiling, assumed; height measured from the floor
+const WALL_GAP = 1;          // default desk back edge to wall (adjustable in the Wall gaps panel)
+const WALL_H = 96;           // 8 ft ceiling, assumed; height measured from the floor
+const GAP_MAX = 24;          // slider range for wall gaps
 
 // ---- Seated eye height, 6'5" person ----------------------------------------
 const STATURE = 77;
@@ -205,8 +223,8 @@ const NOTES = {
     `Monitor height rule: bottom edge 1″ above the tallest fixed rack-top item (MixPre, laptop deck). The open laptop lid isn't counted, so its collision with the monitor shows.`,
     `ergoiuon side-arm geometry and MagFlött plate (4.7 × 4.7 × 0.25″) are assumed; iPad front is set flush with the monitor's front, centered on the monitor's edge with a 1″ gap. With the iPad below, the auto height keeps the iPad's bottom 1″ above the rack-top items.`,
     `MacBook base/lid thickness split (60/40 of closed height) and lid length (= depth) are assumed. Laptop and MixPre fronts are flush with the rack front.`,
-    `ALEX (fixed in place): ${ALEX.gap}″ gap from the desk's right edge, back flush with the desk back, ${ALEX.castor}″ castor height and equal drawer heights are assumed.`,
-    `Back wall ${WALL_GAP}″ behind the desk's back edge (WALL_GAP constant) and 8 ft tall are assumed. The arm clamp's spine sits in that gap.`,
+    `ALEX (fixed in place, except its wall gap): ${ALEX.gap}″ gap from the desk's right edge, ${ALEX.castor}″ castor height and equal drawer heights are assumed.`,
+    `Back wall is 8 ft tall (assumed). Desk and ALEX gaps to the wall default to ${WALL_GAP}″; set them with the Wall gaps button. The arm clamp's spine sits in the desk gap.`,
     `Seated eye height (${(EYE_Y + DESK_H).toFixed(1)}″ above floor, ${EYE_Y.toFixed(1)}″ above desk) is an anthropometric estimate for a 6′5″ person on a typical chair.`,
   ],
   sources: [
@@ -301,7 +319,8 @@ function disposeTree(o) {
 // Units (movable groups)
 // ============================================================================
 const IPAD_SIDES = ['left', 'right', 'above', 'below'];
-const S = { ipad: 'right', rack: '4U', mon: 'd', mac: 13, laptop: true, labels: false, wall: true, mode: 'move' };
+const S = { ipad: 'right', rack: '4U', mon: 'd', mac: 13, laptop: true, labels: false, wall: true, deskWall: WALL_GAP, alexWall: WALL_GAP, mode: 'move' };
+const wallZ = () => -S.deskWall;
 const units = {};
 function defUnit(id, name, build, opts = {}) {
   const u = Object.assign({ id, name, build, group: new THREE.Group(), meshes: [], colliders: [], named: {},
@@ -361,11 +380,11 @@ defUnit('wall', 'Back wall', u => {
   const w = 160, cx = (DESK_W + ALEX.gap + ALEX.w) / 2, y0 = -DESK_H;
   // single-sided plane facing the room, so it vanishes when you orbit behind it
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, WALL_H), new THREE.MeshLambertMaterial({ color: 0xe9e5de }));
-  m.position.set(cx, y0 + WALL_H / 2, WALL_Z);
+  m.position.set(cx, y0 + WALL_H / 2, 0);
   m.userData = { base: new THREE.Color(0xe9e5de), unit: 'wall', part: 'wall:wall' };
   u.group.add(m); u.meshes.push(m);
-  addBox(u, 'wall', w, 3.5, 0.5, 0xf7f7f5, cx, y0 + 1.75, WALL_Z + 0.25, null, { collider: false });
-  addCollider(u, 'wall', w, WALL_H, 0.5, cx, y0 + WALL_H / 2, WALL_Z - 0.25, null, 'Back wall');
+  addBox(u, 'wall', w, 3.5, 0.5, 0xf7f7f5, cx, y0 + 1.75, 0.25, null, { collider: false });
+  addCollider(u, 'wall', w, WALL_H, 0.5, cx, y0 + WALL_H / 2, -0.25, null, 'Back wall');
 }, { selectable: false });
 
 defUnit('pole', 'VIVO V101GT pole', u => {
@@ -480,7 +499,7 @@ const DEFAULTS = {
   laptop: () => { const r = units.rack.state, L = mac(); return { x: r.x - RACK_W / 2 + L.w / 2, y: rackTopY(), z: r.z + RACK_D / 2 - L.d / 2, ry: 0 }; },
   mixpre: () => { const r = units.rack.state; return { x: r.x + RACK_W / 2 - MIXPRE.w / 2, y: rackTopY(), z: r.z + RACK_D / 2 - MIXPRE.d / 2, ry: 0 }; },
   keyboard: () => ({ x: DESK_W / 2, y: 0, z: DESK_D - KB_FRONT_GAP - KB.d / 2, ry: 0 }),
-  alex: () => ({ x: DESK_W + ALEX.gap + ALEX.w / 2, y: -DESK_H, z: ALEX.d / 2, ry: 0 }),
+  alex: () => ({ x: DESK_W + ALEX.gap + ALEX.w / 2, y: -DESK_H, z: wallZ() + S.alexWall + ALEX.d / 2, ry: 0 }),
 };
 const ORDER = ['rack', 'pole', 'monitor', 'laptop', 'mixpre', 'keyboard'];
 function resetUnit(id) {
@@ -520,12 +539,13 @@ if (saved && saved.S) {
   if (typeof o.laptop === 'boolean') S.laptop = o.laptop;
   if (saved.v >= 2 && typeof o.labels === 'boolean') S.labels = o.labels;
   if (typeof o.wall === 'boolean') S.wall = o.wall;
+  for (const k of ['deskWall', 'alexWall']) if (Number.isFinite(o[k])) S[k] = Math.min(GAP_MAX, Math.max(0, o[k]));
   if (['move', 'lift', 'rotate'].includes(o.mode)) S.mode = o.mode;
 }
 let saveTimer = 0;
 function saveNow() {
   clearTimeout(saveTimer); saveTimer = 0;
-  const data = { v: 2, S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, wall: S.wall, mode: S.mode }, units: {},
+  const data = { v: 2, S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, wall: S.wall, deskWall: S.deskWall, alexWall: S.alexWall, mode: S.mode }, units: {},
     cam: { p: camera.position.toArray(), t: controls.target.toArray() } };
   for (const id of ORDER) { const u = units[id]; data.units[id] = { state: u.state, moved: u.moved, autoY: u.autoY }; }
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable: just don't persist */ }
@@ -687,7 +707,7 @@ function updateClearances() {
   let wallGap = Infinity;
   for (const u of Object.values(units)) {
     if (u.id === 'wall' || !u.group.visible) continue;
-    for (const c of u.colliders) wallGap = Math.min(wallGap, box(c).min.z - WALL_Z);
+    for (const c of u.colliders) wallGap = Math.min(wallGap, box(c).min.z - wallZ());
   }
   const monMix = mb.min.y - xb.max.y;
   const monLap = lapOn ? mb.min.y - lb.max.y : NaN;
@@ -716,7 +736,7 @@ function updateClearances() {
   const sign = v => v < 0 ? 'neg' : 'pos';
   clrTable.innerHTML =
     row('Rack front → desk front', fmt(rackFront), sign(rackFront)) +
-    (S.wall ? row('Wall → nearest object behind desk', fmt(wallGap), sign(wallGap)) : '') +
+    (S.wall ? row('Wall → nearest object', fmt(wallGap), sign(wallGap)) : '') +
     row('Monitor bottom → MixPre top', fmt(monMix), sign(monMix)) +
     row('Monitor bottom → laptop top', lapOn ? fmt(monLap) : 'hidden', lapOn ? sign(monLap) : '') +
     row('Arm collar → rack top', fmt(collar), sign(collar)) +
@@ -756,6 +776,8 @@ const selBox = new THREE.BoxHelper(undefined, 0xff9800); selBox.visible = false;
 function update() {
   units.laptop.group.visible = S.laptop;
   units.wall.group.visible = S.wall;
+  units.wall.group.position.z = wallZ();
+  units.alex.state = DEFAULTS.alex(); apply(units.alex);
   updateArm();
   scene.updateMatrixWorld(true);
   checkCollisions();
@@ -763,6 +785,7 @@ function update() {
   if (selected) { selBox.setFromObject(units[selected].group); selBox.visible = true; } else selBox.visible = false;
   syncSelPanel();
   syncButtons();
+  syncRoom();
   scheduleSave();
 }
 
@@ -771,7 +794,7 @@ function update() {
 // ============================================================================
 const undoStack = [], redoStack = [], UNDO_MAX = 100;
 function snapshot() {
-  const o = { S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop }, units: {} };
+  const o = { S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, deskWall: S.deskWall, alexWall: S.alexWall }, units: {} };
   for (const id of ORDER) { const u = units[id]; o.units[id] = { state: { ...u.state }, moved: u.moved, autoY: u.autoY }; }
   return JSON.stringify(o);
 }
@@ -951,6 +974,26 @@ $('lapBtn').addEventListener('click', undoable(() => { S.laptop = !S.laptop; if 
 $('lblBtn').addEventListener('click', () => { S.labels = !S.labels; update(); });
 $('wallBtn').addEventListener('click', () => { S.wall = !S.wall; update(); });
 $('resetBtn').addEventListener('click', undoable(() => { ORDER.forEach(resetUnit); setView('default'); update(); }));
+// ---- wall gaps panel ----
+const setGap = (k, v) => { S[k] = Math.min(GAP_MAX, Math.max(0, Math.round(v * 4) / 4)); };
+let roomBefore = null;
+for (const k of ['deskWall', 'alexWall']) {
+  const el = $(k);
+  el.addEventListener('input', () => { if (!roomBefore) roomBefore = snapshot(); setGap(k, +el.value); update(); });
+  el.addEventListener('change', () => { if (roomBefore) { commit(roomBefore); roomBefore = null; } });
+}
+document.querySelectorAll('[data-nudge]').forEach(b => b.addEventListener('click', undoable(() => {
+  setGap(b.dataset.nudge, S[b.dataset.nudge] + +b.dataset.d); update();
+})));
+function syncRoom() {
+  for (const k of ['deskWall', 'alexWall']) {
+    if (document.activeElement !== $(k)) $(k).value = S[k];
+    $(k + 'Out').textContent = `${S[k].toFixed(2)}″ (${(S[k] * 2.54).toFixed(1)} cm)`;
+  }
+  $('roomBtn').classList.toggle('on', !$('room').hidden);
+}
+$('roomBtn').addEventListener('click', () => { $('room').hidden = !$('room').hidden; syncRoom(); });
+$('roomClose').addEventListener('click', () => { $('room').hidden = true; syncRoom(); });
 $('undoBtn').addEventListener('click', undo);
 $('redoBtn').addEventListener('click', redo);
 syncUndo();
