@@ -473,9 +473,43 @@ function refreshDependents(oldTop) {
 }
 
 // build everything
+// ============================================================================
+// Persistence: toggles, object positions and camera are kept in this browser
+// ============================================================================
+const STORE_KEY = 'deskplan3d.v1';
+const saved = (() => { try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { return null; } })();
+if (saved && saved.S) {
+  const o = saved.S;
+  if (o.rack in RACKS) S.rack = o.rack;
+  if (o.mon in MONITORS) S.mon = o.mon;
+  if (o.mac in MACS) S.mac = +o.mac;
+  if (typeof o.laptop === 'boolean') S.laptop = o.laptop;
+  if (typeof o.labels === 'boolean') S.labels = o.labels;
+  if (['move', 'lift', 'rotate'].includes(o.mode)) S.mode = o.mode;
+}
+let saveTimer = 0;
+function saveNow() {
+  clearTimeout(saveTimer); saveTimer = 0;
+  const data = { S: { rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, mode: S.mode }, units: {},
+    cam: { p: camera.position.toArray(), t: controls.target.toArray() } };
+  for (const id of ORDER) { const u = units[id]; data.units[id] = { state: u.state, moved: u.moved, autoY: u.autoY }; }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable: just don't persist */ }
+}
+const scheduleSave = () => { if (!saveTimer) saveTimer = setTimeout(saveNow, 300); };
+window.addEventListener('pagehide', saveNow);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
+
 Object.values(units).forEach(u => u.build(u));
 units.monitor.autoY = true;
 ORDER.forEach(resetUnit);
+if (saved && saved.units) for (const id of ORDER) {
+  const v = saved.units[id], st = v && v.state;
+  if (!st || !['x', 'y', 'z', 'ry'].every(k => Number.isFinite(st[k]))) continue;
+  const u = units[id];
+  u.state = { x: st.x, y: st.y, z: st.z, ry: st.ry }; u.moved = !!v.moved;
+  if (id === 'monitor') { u.autoY = v.autoY !== false; if (u.autoY) u.state.y = monitorAutoY(); }
+  apply(u);
+}
 
 // ============================================================================
 // Arm solve: collar → elbow (horizontal) → pneumatic segment → tilt head → VESA
@@ -681,6 +715,7 @@ function update() {
   if (selected) { selBox.setFromObject(units[selected].group); selBox.visible = true; } else selBox.visible = false;
   syncSelPanel();
   syncButtons();
+  scheduleSave();
 }
 
 // ============================================================================
@@ -802,7 +837,7 @@ function onInput() {
   u.moved = true; apply(u); update();
 }
 [inX, inY, inZ, inR].forEach(el => el.addEventListener('change', onInput));
-document.querySelectorAll('#modeSeg button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; syncSelPanel(); }));
+document.querySelectorAll('#modeSeg button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; syncSelPanel(); scheduleSave(); }));
 document.querySelectorAll('[data-rot]').forEach(b => b.addEventListener('click', () => {
   if (!selected) return; rotateBy(+b.dataset.rot); apply(units[selected]); update();
 }));
@@ -830,7 +865,7 @@ document.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', (
 }));
 $('lapBtn').addEventListener('click', () => { S.laptop = !S.laptop; if (!S.laptop && selected === 'laptop') selected = null; update(); });
 $('lblBtn').addEventListener('click', () => { S.labels = !S.labels; update(); });
-$('resetBtn').addEventListener('click', () => { ORDER.forEach(resetUnit); update(); });
+$('resetBtn').addEventListener('click', () => { ORDER.forEach(resetUnit); setView('default'); update(); });
 
 // ---- camera presets ----
 const center = new V3((DESK_W + ALEX.gap + ALEX.w) / 2, -6, DESK_D / 2);
@@ -855,7 +890,8 @@ $('notesBody').innerHTML =
   `<h4>Sourced</h4><ul>${NOTES.sources.map(t => `<li>${t}</li>`).join('')}</ul>` +
   `<h4>Controls</h4><ul><li>Orbit: drag empty space (one finger / left mouse). Zoom: pinch / wheel. Pan: two fingers / right mouse.</li>` +
   `<li>Tap or click an object to select it, then drag it. Pick Move, Lift or Rotate in the panel, or type exact values. With a mouse, Shift-drag lifts and Alt-drag rotates; R rotates 15°.</li>` +
-  `<li>Objects can't be scaled. The iPad, its side arm and the plate move with the monitor.</li></ul>`;
+  `<li>Your layout, toggles and view are saved in this browser and restored next visit. Reset layout starts over.</li>
+  <li>Objects can't be scaled. The iPad, its side arm and the plate move with the monitor.</li></ul>`;
 if (window.innerWidth < 600) $('clear').open = false;
 
 // ============================================================================
@@ -874,6 +910,10 @@ function placeLabels() {
   }
 }
 setView('default');
+if (saved && saved.cam && [...saved.cam.p, ...saved.cam.t].length === 6 && [...saved.cam.p, ...saved.cam.t].every(Number.isFinite)) {
+  camera.position.fromArray(saved.cam.p); controls.target.fromArray(saved.cam.t); controls.update();
+}
+controls.addEventListener('change', scheduleSave);
 update();
 (function loop() {
   requestAnimationFrame(loop);
