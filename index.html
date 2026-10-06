@@ -105,7 +105,7 @@
   </div>
   <div id="bar" class="panel">
     <div class="grp"><span>Rack</span><button data-k="rack" data-v="2U">2U</button><button data-k="rack" data-v="4U">4U</button></div>
-    <div class="grp"><span>Monitor</span><button data-k="mon" data-v="a" title="ASUS ProArt PA32QCV">a</button><button data-k="mon" data-v="b" title="INNOCN 34C1U">b</button><button data-k="mon" data-v="c" title="Dell U3425WE">c</button></div>
+    <div class="grp"><span>Monitor</span><button data-k="mon" data-v="a" title="ASUS ProArt PA32QCV">a</button><button data-k="mon" data-v="b" title="INNOCN 34C1U">b</button><button data-k="mon" data-v="c" title="Dell U3425WE">c</button><button data-k="mon" data-v="d" title="Dell U2724D (current)">d·now</button></div>
     <div class="grp"><span>MacBook</span><button data-k="mac" data-v="13">13″</button><button data-k="mac" data-v="15">15″</button><button id="lapBtn">Hide</button></div>
     <div class="grp"><span>View</span><button data-view="top">Top</button><button data-view="front">Front</button><button data-view="side">Side</button><button data-view="seated">Seated</button></div>
     <div class="grp"><button id="lblBtn" class="on">Labels</button><button id="resetBtn">Reset layout</button></div>
@@ -145,6 +145,7 @@ const MONITORS = {
   a: { name: 'ASUS ProArt PA32QCV', w: 28.12, h: 16.52, d: 1.85, curve: 0 },
   b: { name: 'INNOCN 34C1U', w: 32.16, h: 14.4, d: 2.0, curve: 0 },
   c: { name: 'Dell U3425WE', w: 813.5 * MM, h: 359.1 * MM, d: 105.1 * MM, curve: 1900 * MM },
+  d: { name: 'Dell U2724D', w: 612.2 * MM, h: 352.5 * MM, d: 50.1 * MM, curve: 0 },   // current monitor
 };
 const MON_VESA_Z = 3.5;    // z of the monitor's back (VESA) plane, default placement
 const MON_CLEAR = 1;       // bottom edge ≥ 1" above tallest rack-top item
@@ -164,6 +165,9 @@ const MIXPRE = { w: 110 * MM, d: 114 * MM, h: 36 * MM };
 // ---- 8. Apple Magic Keyboard with Numeric Keypad ----------------------------
 const KB = { w: 16.48, d: 4.52, hFront: 0.16, hBack: 0.43 };
 const KB_FRONT_GAP = 2;
+
+// ---- 9. IKEA ALEX drawer unit on castors (wide), on the floor right of the desk ----
+const ALEX = { w: 67 * CM, d: 48 * CM, h: 66 * CM, drawers: 6, castor: 1.6, gap: 1 };   // castor height, gap assumed
 
 // ---- Seated eye height, 6'5" person ----------------------------------------
 const STATURE = 77;
@@ -185,6 +189,7 @@ const NOTES = {
     `Monitor height rule: bottom edge 1″ above the tallest fixed rack-top item (MixPre, laptop deck). The open laptop lid isn't counted, so its collision with the monitor shows.`,
     `ergoiuon side-arm geometry and MagFlött plate (4.7 × 4.7 × 0.25″) are assumed; iPad front is set flush with the monitor's front.`,
     `MacBook base/lid thickness split (60/40 of closed height) and lid length (= depth) are assumed. Laptop and MixPre fronts are flush with the rack front.`,
+    `ALEX: ${ALEX.gap}″ gap from the desk's right edge, back flush with the desk back, ${ALEX.castor}″ castor height and equal drawer heights are assumed.`,
     `Seated eye height (${(EYE_Y + DESK_H).toFixed(1)}″ above floor, ${EYE_Y.toFixed(1)}″ above desk) is an anthropometric estimate for a 6′5″ person on a typical chair.`,
   ],
   sources: [
@@ -196,6 +201,8 @@ const NOTES = {
     `MacBook Air M3: 13″ 11.97 × 8.46 × 0.44″; 15″ 13.40 × 9.35 × 0.45″.`,
     `Magic Keyboard with Numeric Keypad: 16.48 × 4.52″, 0.16–0.43″ tall.`,
     `MixPre: 110 × 114 × 36 mm (from brief).`,
+    `Dell U2724D (current monitor): 612.2 × 352.5 × 50.1 mm without stand.`,
+    `IKEA ALEX drawer unit on castors (wide): 67 W × 48 D × 66 H cm, 6 drawers.`,
     `Apple, ASUS, INNOCN and VIVO sites were blocked from the build environment. Apple figures match Apple's published specs as quoted by third parties.`,
   ],
 };
@@ -263,6 +270,7 @@ function addBox(u, part, w, h, d, color, x, y, z, parent, opts = {}) {
 function addCyl(u, part, r, h, color, x, y, z, parent, axis) {
   const g = new THREE.CylinderGeometry(r, r, h, 24);
   if (axis === 'z') g.rotateX(Math.PI / 2);
+  if (axis === 'x') g.rotateZ(Math.PI / 2);
   return addMesh(u, part, g, color, parent, [x, y, z]);
 }
 function disposeTree(o) {
@@ -275,7 +283,7 @@ function disposeTree(o) {
 // ============================================================================
 // Units (movable groups)
 // ============================================================================
-const S = { rack: '4U', mon: 'a', mac: 13, laptop: true, labels: true, mode: 'move' };
+const S = { rack: '4U', mon: 'd', mac: 13, laptop: true, labels: true, mode: 'move' };
 const units = {};
 function defUnit(id, name, build, opts = {}) {
   const u = Object.assign({ id, name, build, group: new THREE.Group(), meshes: [], colliders: [], named: {},
@@ -304,10 +312,11 @@ defUnit('desk', 'Desk', u => {
   const H = DESK_H - TOP_T, birch = 0xd9c49a, p = TRESTLE.post;
   const z0 = (DESK_D - TRESTLE.depth) / 2 + p / 2, z1 = DESK_D - z0;
   for (const tx of [TRESTLE.inset, DESK_W - TRESTLE.inset]) {
-    for (const z of [z0, z1]) addBox(u, 'tr', p, H, p, birch, tx, -TOP_T - H / 2, z, null, { collider: false });
-    addBox(u, 'tr', p, p, TRESTLE.depth, birch, tx, -TOP_T - p / 2, DESK_D / 2, null, { collider: false });
-    addBox(u, 'tr', p * 0.8, p * 0.8, TRESTLE.depth - p, birch, tx, -TOP_T - H * 0.62, DESK_D / 2, null, { collider: false });
-    addBox(u, 'tr', p * 1.6, p * 0.7, TRESTLE.depth, birch, tx, -DESK_H + p * 0.35, DESK_D / 2, null, { collider: false });
+    const o = { label: 'Trestle' };
+    for (const z of [z0, z1]) addBox(u, 'tr', p, H, p, birch, tx, -TOP_T - H / 2, z, null, o);
+    addBox(u, 'tr', p, p, TRESTLE.depth, birch, tx, -TOP_T - p / 2, DESK_D / 2, null, o);
+    addBox(u, 'tr', p * 0.8, p * 0.8, TRESTLE.depth - p, birch, tx, -TOP_T - H * 0.62, DESK_D / 2, null, o);
+    addBox(u, 'tr', p * 1.6, p * 0.7, TRESTLE.depth, birch, tx, -DESK_H + p * 0.35, DESK_D / 2, null, o);
   }
 }, { selectable: false });
 
@@ -415,6 +424,21 @@ defUnit('keyboard', 'Magic Keyboard', u => {
   addCollider(u, 'kb', KB.w, KB.hBack, KB.d, 0, KB.hBack / 2, 0, null, 'Keyboard');
 });
 
+// ---- IKEA ALEX drawer unit (pivot = bottom center at the floor; drawers face +Z) ----
+defUnit('alex', 'IKEA ALEX drawers', u => {
+  const A = ALEX, white = 0xf4f4f2, body = A.h - A.castor, t = 0.7, gap = 0.12;
+  addBox(u, 'alex', A.w, body, A.d - 0.6, white, 0, A.castor + body / 2, -0.3, null, { collider: false });
+  const fh = (body - t) / A.drawers;
+  for (let i = 0; i < A.drawers; i++) {
+    const y = A.castor + t / 2 + fh * (i + 0.5);
+    addBox(u, 'alex', A.w - 0.5, fh - gap, 0.6, white, 0, y, A.d / 2 - 0.3, null, { collider: false });
+    addBox(u, 'alex', A.w * 0.3, 0.35, 0.02, 0x9a9a9a, 0, y + fh / 2 - 0.55, A.d / 2 + 0.011, null, { collider: false });
+  }
+  for (const sx of [-1, 1]) for (const sz of [-1, 1])
+    addCyl(u, 'alex', A.castor / 2, 0.8, 0x333333, sx * (A.w / 2 - 2), A.castor / 2, sz * (A.d / 2 - 2), null, 'x');
+  addCollider(u, 'alex', A.w, A.h, A.d, 0, A.h / 2, 0, null, 'ALEX drawers');
+});
+
 // ---- defaults ----
 const DEFAULTS = {
   rack: () => ({ x: DESK_W / 2, y: 0, z: RACK_D / 2, ry: 0 }),
@@ -423,8 +447,9 @@ const DEFAULTS = {
   laptop: () => { const r = units.rack.state, L = mac(); return { x: r.x - RACK_W / 2 + L.w / 2, y: rackTopY(), z: r.z + RACK_D / 2 - L.d / 2, ry: 0 }; },
   mixpre: () => { const r = units.rack.state; return { x: r.x + RACK_W / 2 - MIXPRE.w / 2, y: rackTopY(), z: r.z + RACK_D / 2 - MIXPRE.d / 2, ry: 0 }; },
   keyboard: () => ({ x: DESK_W / 2, y: 0, z: DESK_D - KB_FRONT_GAP - KB.d / 2, ry: 0 }),
+  alex: () => ({ x: DESK_W + ALEX.gap + ALEX.w / 2, y: -DESK_H, z: ALEX.d / 2, ry: 0 }),
 };
-const ORDER = ['rack', 'pole', 'monitor', 'laptop', 'mixpre', 'keyboard'];
+const ORDER = ['rack', 'pole', 'monitor', 'laptop', 'mixpre', 'keyboard', 'alex'];
 function resetUnit(id) {
   const u = units[id]; u.state = DEFAULTS[id](); u.moved = false; if (id === 'monitor') u.autoY = true; apply(u);
 }
@@ -581,6 +606,7 @@ const dimTxt = (w, h, d) => `${w.toFixed(2)}×${h.toFixed(2)}×${d.toFixed(2)}�
 const clrTable = document.getElementById('clrTable'), overlapsEl = document.getElementById('overlaps');
 function updateClearances() {
   const rk = units.rack, mo = units.monitor, lp = units.laptop, mp = units.mixpre, po = units.pole;
+  const ab = box(units.alex.named.alex);
   const rb = box(rk.named.rack), mb = box(mo.named.mon), ib = box(mo.named.ipad), xb = box(mp.named.body);
   const lapOn = S.laptop;
   const lb = lapOn ? box(lp.named.lid).union(box(lp.named.base)) : null;
@@ -617,6 +643,8 @@ function updateClearances() {
     row('Arm collar → rack top', fmt(collar), sign(collar)) +
     row('iPad overhang past desk right edge', over > 0 ? fmt(over) : `none (${fmt(-over)} inside)`, over > 0 ? 'neg' : 'pos') +
     row('Screen center above desk', `${fmt(ch)}${chOk ? '' : ' ⚠ outside 10.5–23.5″'}`, chOk ? '' : 'neg') +
+    row('ALEX gap to desk right edge', fmt(ab.min.x - DESK_W), sign(ab.min.x - DESK_W)) +
+    row('ALEX top below desktop', fmt(-ab.max.y)) +
     row('Arm reach (pole → VESA)', `${armInfo.ext.toFixed(2)} / ${ARM.maxExt}″${armInfo.reachOk && armInfo.vertOk ? '' : ' ⚠ out of reach'}`, armInfo.reachOk && armInfo.vertOk ? '' : 'neg');
   overlapsEl.textContent = overlaps.length ? '⚠ Overlap: ' + overlaps.join('; ') : 'No overlaps';
   overlapsEl.style.color = overlaps.length ? '' : 'var(--ok)';
@@ -634,6 +662,7 @@ function updateClearances() {
   else objLabel('lap', '', new V3(), false);
   objLabel('mix', `<b>MixPre</b> ${dimTxt(MIXPRE.w, MIXPRE.h, MIXPRE.d)}`, new V3(xcx, xb.max.y + 0.3, xb.max.z + 1.2));
   const kb = box(units.keyboard.named.kb);
+  objLabel('alex', `<b>IKEA ALEX</b> ${dimTxt(ALEX.w, ALEX.h, ALEX.d)}`, top(ab, 0.8));
   objLabel('kb', `<b>Magic Keyboard</b> ${dimTxt(KB.w, KB.hBack, KB.d)}`, top(kb, 0.5));
   objLabel('pole', `<b>VIVO V101GT</b> pole ${ARM.poleH}″, collar @ ${po.state.y.toFixed(2)}″`, new V3(po.state.x, ARM.poleH + 0.8, po.state.z));
 }
@@ -804,7 +833,7 @@ $('lblBtn').addEventListener('click', () => { S.labels = !S.labels; update(); })
 $('resetBtn').addEventListener('click', () => { ORDER.forEach(resetUnit); update(); });
 
 // ---- camera presets ----
-const center = new V3(DESK_W / 2, 6, DESK_D / 2);
+const center = new V3((DESK_W + ALEX.gap + ALEX.w) / 2, -6, DESK_D / 2);
 function setView(v) {
   const t = center.clone();
   const fit = Math.min(Math.max(0.95 / camera.aspect, 1), 2.0);   // back off on tall/narrow screens
@@ -814,7 +843,7 @@ function setView(v) {
   else if (v === 'seated') {
     const m = units.monitor.state; t.set(m.x, m.y, m.z);
     camera.position.set(DESK_W / 2, EYE_Y, DESK_D + 16);
-  } else { camera.position.set(DESK_W / 2 + 42, 42, DESK_D + 58); }
+  } else { camera.position.set(t.x + 42, 34, DESK_D + 78); }
   if (v !== 'seated') camera.position.sub(t).multiplyScalar(fit).add(t);
   controls.target.copy(t); camera.lookAt(t); controls.update();
 }

@@ -1,6 +1,6 @@
 # Desk Plan 3D
 
-A to-scale 3D mockup of my desk setup for checking fit and clearances: rack, monitor arm, monitor, laptop, iPad and keyboard.
+A to-scale 3D mockup of my desk setup for checking fit and clearances: rack, monitor arm, monitor, laptop, iPad, keyboard and the IKEA ALEX drawers.
 
 **Live:** https://spencereholtaway.github.io/silly-desk-plan-3d/
 
