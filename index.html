@@ -322,7 +322,11 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 wrap.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xeef0f3);
-const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 3000);
+// Two cameras: perspective for free orbiting, orthographic (no perspective) for the Top / Front /
+// Side presets. Orbiting out of a preset swaps back to perspective, keeping the same framing.
+const perspCam = new THREE.PerspectiveCamera(45, 1, 0.5, 3000);
+const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
+let camera = perspCam, orthoDir = null, orthoView = null;
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.screenSpacePanning = true;
 controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
@@ -339,7 +343,10 @@ const axes = new THREE.AxesHelper(3); axes.position.set(0, 0.02, 0); scene.add(a
 
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
-  camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+  const aspect = window.innerWidth / window.innerHeight;
+  perspCam.aspect = aspect; perspCam.updateProjectionMatrix();
+  const halfH = orthoCam.top || 1;
+  orthoCam.left = -halfH * aspect; orthoCam.right = halfH * aspect; orthoCam.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize); resize();
 
@@ -994,6 +1001,7 @@ function dragPlane(mode, point) {
   return { axes, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(n.normalize(), point) };
 }
 function worldPerPixel(point) {
+  if (camera.isOrthographicCamera) return (camera.top - camera.bottom) / camera.zoom / renderer.domElement.clientHeight;
   const dist = camera.position.distanceTo(point);
   return 2 * dist * Math.tan(camera.fov * DEG / 2) / renderer.domElement.clientHeight;
 }
@@ -1207,19 +1215,51 @@ syncUndo();
 
 // ---- camera presets ----
 const center = new V3((DESK_W + ALEX.gap + ALEX.w) / 2, -6, DESK_D / 2);
+function useCamera(cam) {
+  if (camera === cam) return;
+  cam.up.set(0, 1, 0);
+  camera = cam; controls.object = cam;
+}
 function setView(v) {
-  const t = center.clone();
-  const fit = Math.min(Math.max(0.95 / camera.aspect, 1), 2.0);   // back off on tall/narrow screens
-  if (v === 'top') { t.set(DESK_W / 2, 0, DESK_D / 2); camera.position.set(t.x, 95, t.z + 0.01); }
-  else if (v === 'front') { t.set(DESK_W / 2, 12, DESK_D / 2); camera.position.set(t.x, 12, DESK_D + 75); }
-  else if (v === 'side') { t.set(DESK_W / 2, 12, DESK_D / 2); camera.position.set(DESK_W + 70, 12, t.z); }
+  const t = center.clone(), p = new V3();
+  const fit = Math.min(Math.max(0.95 / perspCam.aspect, 1), 2.0);   // back off on tall/narrow screens
+  if (v === 'top') { t.set(DESK_W / 2, 0, DESK_D / 2); p.set(t.x, 95, t.z + 0.01); }
+  else if (v === 'front') { t.set(DESK_W / 2, 12, DESK_D / 2); p.set(t.x, 12, DESK_D + 75); }
+  else if (v === 'side') { t.set(DESK_W / 2, 12, DESK_D / 2); p.set(DESK_W + 70, 12, t.z); }
   else if (v === 'seated') {
     const m = units.monitor.state; t.set(m.x, m.y, m.z);
-    camera.position.set(DESK_W / 2, EYE_Y, DESK_D + 16);
-  } else { camera.position.set(t.x + 42, 34, DESK_D + 78); }
-  if (v !== 'seated') camera.position.sub(t).multiplyScalar(fit).add(t);
-  controls.target.copy(t); camera.lookAt(t); controls.update();
+    p.set(DESK_W / 2, EYE_Y, DESK_D + 16);
+  } else { p.set(t.x + 42, 34, DESK_D + 78); }
+  if (v !== 'seated') p.sub(t).multiplyScalar(fit).add(t);
+  const flat = v === 'top' || v === 'front' || v === 'side';
+  if (flat) {
+    // frame the orthographic view like the perspective one would at the target's distance
+    const halfH = p.distanceTo(t) * Math.tan(perspCam.fov * DEG / 2);
+    Object.assign(orthoCam, { top: halfH, bottom: -halfH, left: -halfH * perspCam.aspect, right: halfH * perspCam.aspect, zoom: 1 });
+    orthoCam.updateProjectionMatrix();
+    useCamera(orthoCam);
+    orthoDir = p.clone().sub(t).normalize(); orthoView = v;
+  } else { useCamera(perspCam); orthoDir = null; orthoView = null; }
+  camera.position.copy(p); controls.target.copy(t); camera.lookAt(t); controls.update();
+  syncViewButtons();
 }
+// Leaving a flat view: as soon as an orbit turns the camera, go back to perspective at a
+// distance that keeps things the same size on screen. Panning and zooming stay orthographic.
+function leaveOrthoIfRotated() {
+  if (camera !== orthoCam || !orthoDir) return;
+  const dir = orthoCam.position.clone().sub(controls.target).normalize();
+  if (dir.angleTo(orthoDir) < 0.01) return;
+  const halfH = orthoCam.top / orthoCam.zoom;
+  const dist = halfH / Math.tan(perspCam.fov * DEG / 2);
+  perspCam.position.copy(controls.target).addScaledVector(dir, dist);
+  perspCam.lookAt(controls.target);
+  useCamera(perspCam); orthoDir = null; orthoView = null;
+  syncViewButtons();
+}
+function syncViewButtons() {
+  document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === orthoView));
+}
+controls.addEventListener('change', leaveOrthoIfRotated);
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
 
 // ---- notes ----
@@ -1231,6 +1271,7 @@ $('notesBody').innerHTML =
   `<li>Your layout, toggles and view are saved in this browser and restored next visit. Reset layout starts over.</li>
   <li>⤓ Drop all lowers the rack, keyboard, laptop and MixPre onto whatever is under each one (rack, desk or floor). The monitor and arm stay where the arm holds them.</li>
   <li>Menu → Layouts saves named setups in this browser; Open recent ▸ jumps between the last few. Export / Import moves them to another device as a file.</li>
+  <li>Top, Front and Side show a flat view with no perspective (highlighted while active). Orbit away and perspective comes back; pan and zoom keep it flat.</li>
   <li>Undo / Redo step back through moves, rotations and toggles (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z). Camera moves aren't undone.</li>
   <li>Objects can't be scaled. The iPad, its side arm and the plate move with the monitor.</li></ul>`;
 function setMenu(open) {
