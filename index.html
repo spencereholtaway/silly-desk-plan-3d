@@ -72,6 +72,8 @@
   .slide input[type=range] { flex:1; min-width:0; accent-color:var(--accent); }
   .slide output { width:96px; text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
   .slide button { width:28px; padding:3px 0; }
+  #armPanel .slide > span { width:62px; }
+  #armPanel .slide output { width:64px; }
   #sel .row { display:flex; gap:4px; align-items:center; flex-wrap:wrap; margin:3px 0; }
   #sel .row.top { justify-content:space-between; flex-wrap:nowrap; }
   #sel label { display:flex; align-items:center; gap:3px; font-size:11px; color:var(--muted); }
@@ -152,14 +154,14 @@
       <button data-rot="1">+1°</button><button data-rot="15">+15°</button>
       <button id="selReset">Reset this</button>
     </div>
-    <div class="row" id="poleRow" hidden>
-      <span class="sub">Collar</span><button data-collar="min">⤓ Lowest</button><button data-collar="max">⤒ Highest</button>
-    </div>
-    <div class="row" id="elbowRow" hidden>
-      <span class="sub">Arm</span><button data-fold="-1" title="Fold flat along the wall, lower arm pointing left">◀ Fold left</button><button data-fold="1" title="Fold flat along the wall, lower arm pointing right">Fold right ▶</button><button id="flipElbow" title="Swing the elbow to the other side">⇄ Flip elbow</button>
-    </div>
-    <div class="row" id="armRow" hidden>
-      <span class="sub">Height on the arm</span><button data-armh="lo">⤓ Lowest</button><button data-armh="hi">⤒ Highest</button>
+    <div id="armPanel" hidden>
+      <div class="sub">VIVO arm joints (the monitor follows; dragging the monitor moves them too)</div>
+      <div class="slide"><span>Collar</span><input id="jy" type="range" step="0.05" aria-label="Collar height"><output id="jyOut"></output></div>
+      <div class="slide"><span>Lower arm</span><input id="ja1" type="range" min="-180" max="180" step="1" aria-label="Lower arm angle"><output id="ja1Out"></output></div>
+      <div class="slide"><span>Elbow</span><input id="ja2" type="range" min="-180" max="180" step="1" aria-label="Elbow angle"><output id="ja2Out"></output></div>
+      <div class="slide"><span>Gas arm</span><input id="jp" type="range" step="0.5" aria-label="Gas-spring arm angle"><output id="jpOut"></output></div>
+      <div class="slide"><span>Head</span><input id="ja3" type="range" min="-90" max="90" step="1" aria-label="Head swivel"><output id="ja3Out"></output></div>
+      <div class="row"><button data-fold="-1" title="Lower arm along the wall to the left, gas arm folded back over it">◀ Fold left</button><button data-fold="1" title="Lower arm along the wall to the right, gas arm folded back over it">Fold right ▶</button><button id="armReset">Reset arm</button></div>
     </div>
     <div class="row" id="monRow" hidden>
       <label>Tilt <input id="inTilt" type="number" step="1" min="-30" max="45"></label>
@@ -222,20 +224,22 @@ const DBX = { w: 19, h: 1.75, d: 8 };                 // depth assumed
 // The listing gives the screen-center range: 8.75" (collar low, arm down) to 27.5" (collar at the
 // pole top, arm up) and a 26" max extension measured with the gas arm level. The listing photos
 // show the gas arm swinging from about 27° down to about 51° up. Segment lengths aren't
-// published: L2 comes from the 13" travel over that swing; the lower arm is taken as the same
-// length (the 8.75" photo shows the arm folding back flat, monitor right in front of the pole),
-// the head is what's left of the 26" extension, and the riser and the collar's lowest point are solved so the model hits
+// published: L2 comes from the 13" travel over that swing; the head (gas-arm end pivot → VESA
+// plate face) is ~70 mm, scaled off the 100 mm VESA pattern in the listing's close-up; the lower
+// arm is what's left of the 26" extension (so folded, the monitor sits ~2–3" beside the pole, as
+// in the 8.75" photo), and the riser and the collar's lowest point are solved so the model hits
 // 8.75" and 27.5" exactly.
 const COLLAR_H = 2.4;   // arm-support height, estimated from the listing photo
-const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, travel: 13, phiMin: -27, phiMax: 51, headSwivel: 90,
+const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, travel: 13, phiMin: -27, phiMax: 51, head: 2.75, headSwivel: 90,
   lowT: 1.5, centerMin: 8.75, centerMax: 27.5, tiltMin: -30, tiltMax: 45 };
 ARM.sinLo = Math.sin(ARM.phiMin * Math.PI / 180); ARM.sinHi = Math.sin(ARM.phiMax * Math.PI / 180);
 ARM.L2 = ARM.travel / (ARM.sinHi - ARM.sinLo);
-ARM.L1 = ARM.L2;                              // equal links, so the arm can fold flat
-ARM.head = ARM.maxExt - ARM.L1 - ARM.L2;      // gas-arm end pivot → VESA plate face
+ARM.L1 = ARM.maxExt - ARM.L2 - ARM.head;      // lower arm: the rest of the 26" reach
 ARM.collarMax = ARM.poleH - COLLAR_H;                                     // collar top flush with the pole top
 ARM.riser = ARM.centerMax - ARM.L2 * ARM.sinHi - ARM.poleH - ARM.lowT;   // elbow post height
-ARM.collarMin = ARM.centerMin - ARM.L2 * ARM.sinLo - COLLAR_H - ARM.lowT - ARM.riser;
+ARM.collarMin = 0.3;                                                     // bottom of the shaft (clamp plate)
+ARM.rangeMin = ARM.collarMin + COLLAR_H + ARM.lowT + ARM.riser + ARM.L2 * ARM.sinLo;
+ARM.rangeMax = ARM.collarMax + COLLAR_H + ARM.lowT + ARM.riser + ARM.L2 * ARM.sinHi;
 const CLAMP_W = 2.4, CLAMP_D = 2.4, POLE_GAP = 1.5, COLLAR_GAP = 1, COLLAR_R = 1.15;
 
 // ---- 4. Monitors (no stand) ---------------------------------------------------
@@ -288,10 +292,10 @@ const NOTES = {
     `Rack 2U height 6.5″ (same 21 × 14″ footprint) is unverified. Rack internals (1.5″ top/bottom panels, 1″ sides, open back) are simplified.`,
     `dbx 286s depth 8″ is assumed; drawn in the top rack space, front flush with the rack front.`,
     `VIVO STAND-V101GT: 13″ pole, 26″ max extension and 13″ of gas-spring travel are from retailer listings; the 8.75″–27.5″ screen-center range is from the Amazon listing images.`,
-    `Arm segment lengths aren't published. Modelled as: gas-spring arm ${ARM.L2.toFixed(1)}″ swinging ${ARM.phiMin}° to +${ARM.phiMax}° (read off the listing photos), lower arm the same length so it folds flat like the 8.75″ photo, and a ${ARM.head.toFixed(1)}″ head making up the 26″ reach. The elbow riser (${ARM.riser.toFixed(1)}″) and the collar's lowest setting (${ARM.collarMin.toFixed(2)}″) are solved so the full range is exactly 8.75–27.5″. Collar ${COLLAR_H}″ tall (from the photo), pole Ø 1.4″ and clamp 2.4 × 2.4″ are estimates. The clamp's left edge is 1.5″ from the rack.`,
+    `Arm segment lengths aren't published. Modelled as: gas-spring arm ${ARM.L2.toFixed(1)}″ swinging ${ARM.phiMin}° to +${ARM.phiMax}° (read off the listing photos), a ${ARM.head}″ head (≈70 mm, scaled off the VESA close-up), and a ${ARM.L1.toFixed(1)}″ lower arm making up the 26″ reach. The elbow riser (${ARM.riser.toFixed(1)}″) is solved so the top of the range is the listing's 27.5″. The collar slides down to the bottom of the shaft, which puts the low end at ${ARM.rangeMin.toFixed(1)}″ (the listing says 8.75″, so it may measure that differently). Collar ${COLLAR_H}″ tall (from the photo), pole Ø 1.4″ and clamp 2.4 × 2.4″ are estimates. The clamp's left edge is 1.5″ from the rack.`,
     `The collar can't go above ${ARM.collarMax.toFixed(1)}″ (its top meets the pole top), so "1″ above the 4U rack" (11″) isn't possible; it stops at ${ARM.collarMax.toFixed(1)}″.`,
     `Monitor tilt pivots at the VESA point (the real tilt joint is slightly behind it). Portrait turns the iPad and its side arm with the monitor, as they share the VESA plate.`,
-    `The arm's head is assumed level with the VESA center, and the screen is assumed to face the way the gas-spring arm points within the head's ±90° swivel.`,
+    `The arm's head is assumed level with the VESA center, swivelling ±90° relative to the gas-spring arm.`,
     `VESA mount assumed at the panel center. Monitor back plane placed at z = ${MON_VESA_Z}″ by default.`,
     `INNOCN 34C1U: width 32.16″ from a retailer listing; height 14.4″ and depth 2.0″ (no stand) are estimates.`,
     `Dell U3425WE curve drawn as 1900R; panel thickness and rear-housing shape are approximate. The overlap box uses the full 813.5 × 359.1 × 105.1 mm envelope.`,
@@ -491,18 +495,123 @@ defUnit('pole', 'VIVO V101GT pole', u => {
   addCyl(u, 'collar', 0.3, 0.6, 0x2e3035, 0, 0, -(ARM.poleR + 0.45), u.lock, 'z');
 }, {
   apply(u) {
-    u.state.y = Math.min(Math.max(u.state.y, ARM.collarMin), ARM.collarMax);
+    if (armReady(u.state)) clampJoints(u.state);
+    else u.state.y = clampN(u.state.y, ARM.collarMin, ARM.collarMax);
     u.group.position.set(u.state.x, 0, u.state.z);
     u.group.rotation.set(0, u.state.ry, 0);
     u.collar.position.y = u.state.y + COLLAR_H / 2;
     u.lock.position.y = u.state.y - 0.45;
+    u.lock.visible = u.state.y - 0.9 >= 0.3;
   },
 });
 
-// ---- Arm segments (rebuilt from pole + monitor; selecting it selects the pole) ----
+// ---- VIVO arm: joint-driven --------------------------------------------------
+// The arm's state is its joints, stored on the pole unit: collar height (y), lower-arm heading
+// around the pole (a1), elbow angle between lower and gas arm (a2), gas-arm pitch (p) and head
+// swivel (a3), all in degrees. Headings use dir(θ) = (sin θ, 0, cos θ): 0° points at the user,
+// 90° to the right. The monitor's position comes from the joints (forward kinematics); dragging
+// or typing a monitor position solves the joints starting from where they are (damped least
+// squares), so the arm never flips sides and stops at its limits.
 defUnit('arm', 'VIVO arm', () => {}, { selectable: false, selId: 'pole' });
-let armInfo = {};
-const armMemory = { elbow: null };   // last elbow position, so the elbow keeps its side as things move
+const JOINTS = ['y', 'a1', 'a2', 'p', 'a3'];
+const ARM_BASE = COLLAR_H + ARM.lowT + ARM.riser;            // collar bottom → gas-arm pivot
+const dirOf = deg => new V3(Math.sin(deg * DEG), 0, Math.cos(deg * DEG));
+const headingOf = v => Math.atan2(v.x, v.z) / DEG;
+const wrapDeg = a => ((a + 180) % 360 + 360) % 360 - 180;
+const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const armReady = j => ['a1', 'a2', 'p', 'a3'].every(k => Number.isFinite(j[k]));
+function clampJoints(j) {
+  j.y = clampN(j.y, ARM.collarMin, ARM.collarMax);
+  j.a1 = wrapDeg(j.a1); j.a2 = wrapDeg(j.a2);
+  j.p = clampN(j.p, ARM.phiMin, ARM.phiMax);
+  j.a3 = clampN(wrapDeg(j.a3), -ARM.headSwivel, ARM.headSwivel);
+}
+function armFK(j) {
+  const S0 = new V3(j.x, 0, j.z);
+  const yLow = j.y + COLLAR_H + ARM.lowT / 2, yRoot = j.y + ARM_BASE;
+  const elbow = S0.clone().addScaledVector(dirOf(j.a1), ARM.L1);
+  const gh = j.a1 + j.a2;                                     // gas-arm heading
+  const E = elbow.clone().addScaledVector(dirOf(gh), ARM.L2 * Math.cos(j.p * DEG));
+  E.y = yRoot + ARM.L2 * Math.sin(j.p * DEG);
+  const yaw = wrapDeg(gh + j.a3);                            // which way the screen faces
+  const V = E.clone().addScaledVector(dirOf(yaw), ARM.head);  // VESA point
+  return { S0, yLow, yRoot, elbow, E, V, yaw, gh };
+}
+// Closed-form starting pose for a monitor target {x, y, z, ry}: moves the collar only when the gas
+// arm can't reach that height from where it is, and picks the elbow the head can swivel for.
+function armInitFor(t, j) {
+  const yaw = t.ry / DEG;
+  let c = Number.isFinite(j.y) ? j.y : ARM.collarMax;
+  const lo = ARM.L2 * ARM.sinLo, hi = ARM.L2 * ARM.sinHi;
+  if (t.y - (c + ARM_BASE) > hi) c = t.y - ARM_BASE - hi;
+  if (t.y - (c + ARM_BASE) < lo) c = t.y - ARM_BASE - lo;
+  c = clampN(c, ARM.collarMin, ARM.collarMax);
+  const p = clampN(Math.asin(clampN((t.y - c - ARM_BASE) / ARM.L2, -1, 1)) / DEG, ARM.phiMin, ARM.phiMax);
+  const L1 = ARM.L1, L2h = ARM.L2 * Math.cos(p * DEG);
+  const E = new V3(t.x, 0, t.z).addScaledVector(dirOf(yaw), -ARM.head), S0 = new V3(j.x, 0, j.z);
+  const v = E.clone().sub(S0); let d = v.length();
+  const u = d > 1e-6 ? v.divideScalar(d) : new V3(1, 0, 0);
+  d = clampN(d, Math.abs(L1 - L2h) + 1e-4, L1 + L2h - 1e-4);
+  const k = (L1 * L1 - L2h * L2h + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - k * k));
+  const perp = new V3(-u.z, 0, u.x), base = S0.clone().addScaledVector(u, k);
+  const e1 = base.clone().addScaledVector(perp, h), e2 = base.clone().addScaledVector(perp, -h);
+  // pick the elbow whose head swivel is within its ±90° (else the smaller overrun), then the one
+  // further from the wall
+  const end = S0.clone().addScaledVector(u, d);
+  const over = e => Math.max(0, Math.abs(wrapDeg(yaw - headingOf(end.clone().sub(e)))) - ARM.headSwivel);
+  const o1 = over(e1), o2 = over(e2);
+  const elbow = Math.abs(o1 - o2) > 1e-6 ? (o1 < o2 ? e1 : e2) : (e1.z >= e2.z ? e1 : e2);
+  const a1 = headingOf(elbow.clone().sub(S0)), gh = headingOf(end.clone().sub(elbow));
+  Object.assign(j, { y: c, a1, a2: wrapDeg(gh - a1), p, a3: clampN(wrapDeg(yaw - gh), -ARM.headSwivel, ARM.headSwivel) });
+}
+// Move the joints so the monitor gets as close as it can to {x, y, z, ry}, starting from the
+// current pose. Returns the leftover position error in inches (0 when reachable).
+function armReach(t, j) {
+  const stiff = { y: 0.3, a1: 1, a2: 1, p: 1, a3: 1 };       // the collar is the last resort for height
+  const W_YAW = 0.5;                                          // 1° of facing counts like 0.5″: keep the screen's facing
+  const err = q => { const f = armFK(q); return [f.V.x - t.x, f.V.y - t.y, f.V.z - t.z, wrapDeg(f.yaw - t.ry / DEG) * W_YAW]; };
+  const norm = e => Math.hypot(e[0], e[1], e[2], e[3]);
+  let e = err(j), lambda = 0.5;
+  for (let it = 0; it < 80 && norm(e) > 1e-4; it++) {
+    const J = [[], [], [], []];
+    for (const k of JOINTS) {
+      const q = { ...j }; q[k] += 0.01 * stiff[k];
+      const e2 = err(q); for (let r = 0; r < 4; r++) J[r].push((e2[r] - e[r]) / 0.01);
+    }
+    // Δu = Jᵀ (J Jᵀ + λ²I)⁻¹ (−e)
+    const A = [0, 1, 2, 3].map(r => [0, 1, 2, 3].map(c => J[r].reduce((a, _, n) => a + J[r][n] * J[c][n], 0) + (r === c ? lambda * lambda : 0)));
+    const y = solve4(A, e.map(x => -x)); if (!y) break;
+    const trial = { ...j };
+    JOINTS.forEach((k, n) => {
+      let du = 0; for (let r = 0; r < 4; r++) du += J[r][n] * y[r];
+      trial[k] += clampN(du * stiff[k], k === 'y' ? -1 : -15, k === 'y' ? 1 : 15);
+    });
+    clampJoints(trial);
+    const e2 = err(trial);
+    if (norm(e2) < norm(e)) { Object.assign(j, trial); e = e2; lambda = Math.max(0.05, lambda * 0.7); }
+    else { lambda *= 2; if (lambda > 50) break; }
+  }
+  return Math.hypot(e[0], e[1], e[2]);
+}
+function solve4(A, b) {   // Gaussian elimination with partial pivoting
+  const M = A.map((row, i) => [...row, b[i]]), n = 4;
+  for (let c = 0; c < n; c++) {
+    let piv = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+    if (Math.abs(M[piv][c]) < 1e-12) return null;
+    [M[c], M[piv]] = [M[piv], M[c]];
+    for (let r = 0; r < n; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+  }
+  return M.map((row, i) => row[n] / row[i]);
+}
+let armResidual = 0;   // how far the last monitor move fell short (shown as a warning)
+// Put the monitor where the arm holds it.
+function placeMonitorFromArm() {
+  const m = units.monitor, f = armFK(units.pole.state), s = m.state;
+  s.x = f.V.x; s.y = f.V.y; s.z = f.V.z; s.ry = f.yaw * DEG;
+  m.group.position.set(s.x, s.y, s.z);
+  m.group.rotation.order = 'YXZ';
+  m.group.rotation.set((s.tilt || 0) * DEG, s.ry, (s.roll || 0) * DEG);
+}
 
 // ---- Monitor + iPad (pivot = VESA point on the monitor's back plane) ----
 defUnit('monitor', 'Monitor', u => {
@@ -528,13 +637,18 @@ defUnit('monitor', 'Monitor', u => {
   const postLen = plateBack + 0.75;
   addBox(u, 'side', 0.8, 0.8, postLen, 0x55585e, ix, iy, -0.75 + postLen / 2, null, { label: 'Side arm' });
 }, {
-  // VIVO head: swivel (yaw), tilt +45°/−30° about the VESA point, 180° rotation (portrait)
+  // The monitor goes where the arm can put it: setting its state asks the arm to reach there.
+  // Tilt (+45°/−30°) and portrait (180° rotation) are the VESA head's own joints.
   apply(u) {
-    const s = u.state;
+    const s = u.state, j = units.pole.state;
     s.tilt = Math.max(ARM.tiltMin, Math.min(ARM.tiltMax, s.tilt || 0));
-    u.group.position.set(s.x, s.y, s.z);
-    u.group.rotation.order = 'YXZ';
-    u.group.rotation.set(s.tilt * DEG, s.ry, (s.roll || 0) * DEG);
+    if (!armReady(j)) armInitFor(s, j);
+    const f = armFK(j);
+    if (Math.hypot(f.V.x - s.x, f.V.y - s.y, f.V.z - s.z) > 1e-4 || Math.abs(wrapDeg(f.yaw - s.ry / DEG)) > 1e-3) {
+      armResidual = armReach(s, j);
+      units.pole.apply(units.pole);
+    }
+    placeMonitorFromArm();
   },
 });
 function curvedMonitor(u, M) {
@@ -618,8 +732,13 @@ const DEFAULTS = {
 };
 const ORDER = ['rack', 'pole', 'monitor', 'laptop', 'mixpre', 'keyboard', 'dock'];
 function resetUnit(id) {
-  if (id === 'pole' || id === 'monitor') armMemory.elbow = null;
-  const u = units[id]; u.state = DEFAULTS[id](); u.moved = false; if (id === 'monitor') u.autoY = true; apply(u);
+  const u = units[id]; u.state = DEFAULTS[id](); u.moved = false;
+  if (id === 'pole' || id === 'monitor') {
+    // a fresh arm pose that puts the monitor at its default spot (centered, 1" over the rack-top items)
+    armInitFor(id === 'monitor' ? u.state : DEFAULTS.monitor(), units.pole.state);
+    units.pole.apply(units.pole);
+  }
+  apply(u);
 }
 // Re-derive dependent positions after a toggle changes sizes.
 function refreshDependents(oldTop) {
@@ -634,10 +753,8 @@ function refreshDependents(oldTop) {
   if (!p.moved) p.state = DEFAULTS.pole();
   else if (Math.abs(p.state.y - (oldTop + COLLAR_GAP)) < 0.01) p.state.y = newTop + COLLAR_GAP;
   apply(p);
-  const m = units.monitor;
-  if (!m.moved) { const keep = m.autoY; m.state = DEFAULTS.monitor(); if (!keep) m.state.y = m.state.y; }
-  if (m.autoY) m.state.y = monitorAutoY();
-  apply(m);
+  if (!units.monitor.moved) resetUnit('monitor');      // otherwise it stays where the arm holds it
+  else placeMonitorFromArm();
 }
 
 // build everything
@@ -664,7 +781,7 @@ function saveNow() {
   clearTimeout(saveTimer); saveTimer = 0;
   const data = { v: 2, S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, wall: S.wall, deskWall: S.deskWall, alexWall: S.alexWall, mode: S.mode }, units: {},
     cam: { p: camera.position.toArray(), t: controls.target.toArray() }, currentLayout };
-  for (const id of ORDER) { const u = units[id]; data.units[id] = { state: u.state, moved: u.moved, autoY: u.autoY }; }
+  for (const id of ORDER) { const u = units[id]; data.units[id] = { state: u.state, moved: u.moved }; }
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable: just don't persist */ }
 }
 const scheduleSave = () => { if (!saveTimer) saveTimer = setTimeout(saveNow, 300); };
@@ -672,7 +789,6 @@ window.addEventListener('pagehide', saveNow);
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
 
 Object.values(units).forEach(u => u.build(u));
-units.monitor.autoY = true;
 ORDER.forEach(resetUnit);
 units.alex.state = DEFAULTS.alex(); apply(units.alex);
 if (saved && saved.units) for (const id of ORDER) {
@@ -680,10 +796,9 @@ if (saved && saved.units) for (const id of ORDER) {
   if (!st || !['x', 'y', 'z', 'ry'].every(k => Number.isFinite(st[k]))) continue;
   const u = units[id];
   u.state = { x: st.x, y: st.y, z: st.z, ry: st.ry }; u.moved = !!v.moved;
-  if (id === 'pole' && (st.elbow === 1 || st.elbow === -1)) u.state.elbow = st.elbow;
+  if (id === 'pole') for (const k of ['a1', 'a2', 'p', 'a3']) if (Number.isFinite(st[k])) u.state[k] = st[k];
   if (id === 'monitor') { u.state.tilt = Number.isFinite(st.tilt) ? st.tilt : 0; u.state.roll = st.roll === 90 ? 90 : 0; }
-  if (id === 'monitor') { u.autoY = v.autoY !== false; if (u.autoY) u.state.y = monitorAutoY(); }
-  apply(u);
+  apply(u);   // a save from before the joint model has no joints: the monitor's apply rebuilds them
 }
 
 // ============================================================================
@@ -693,66 +808,15 @@ function updateArm() {
   const u = units.arm;
   [...u.group.children].forEach(c => { u.group.remove(c); disposeTree(c); });
   u.meshes = []; u.colliders = []; u.named = {};
-  const P = units.pole.state, Mo = units.monitor.state;
-  const yLow = P.y + COLLAR_H + ARM.lowT / 2;              // lower arm centerline, on top of the collar
-  const yRoot = P.y + COLLAR_H + ARM.lowT + ARM.riser;    // gas-spring pivot, on top of the elbow riser
-  const fwd = new V3(Math.sin(Mo.ry), 0, Math.cos(Mo.ry));
-  const vesa = new V3(Mo.x, Mo.y, Mo.z);
-  const E = vesa.clone().addScaledVector(fwd, -ARM.head); // gas-spring arm end (head swivel axis)
-  // gas-spring pitch from the height difference, held to its phiMin..phiMax swing
-  const rise = E.y - yRoot, phiRaw = Math.asin(Math.max(-1, Math.min(1, rise / ARM.L2))) / DEG;
-  const heightOk = rise >= ARM.L2 * ARM.sinLo - 1e-6 && rise <= ARM.L2 * ARM.sinHi + 1e-6;
-  const phi = Math.max(ARM.phiMin, Math.min(ARM.phiMax, phiRaw));
-  const L1 = ARM.L1, L2h = ARM.L2 * Math.cos(phi * DEG);
-  // two-link solve in plan: pole axis → elbow → E
-  const S0 = new V3(P.x, yLow, P.z);
-  const dx = E.x - S0.x, dz = E.z - S0.z, d = Math.hypot(dx, dz);
-  const dir = d > 1e-6 ? new V3(dx / d, 0, dz / d) : new V3(1, 0, 0);
-  let elbow, reachOk = true;
-  const swivelOf = el => {   // angle the head must swivel between the gas arm's heading and the screen's facing
-    const h = new V3(E.x - el.x, 0, E.z - el.z); if (h.lengthSq() < 1e-9) return 0;
-    return Math.acos(Math.max(-1, Math.min(1, h.normalize().dot(fwd)))) / DEG;
-  };
-  if (d >= L1 + L2h - 1e-6) { reachOk = d <= L1 + L2h + 1e-6; elbow = S0.clone().addScaledVector(dir, L1); }
-  else if (d < 0.25 && Math.abs(L1 - L2h) < 0.25) {
-    // head almost over the pole with the arm folded flat: the elbow could point anywhere, so keep
-    // it where it was (or the saved fold direction)
-    const m = armMemory.elbow ? new V3(armMemory.elbow.x - S0.x, 0, armMemory.elbow.z - S0.z) : new V3(1, 0, 0);
-    if (m.lengthSq() < 1e-6) m.set(1, 0, 0);
-    elbow = S0.clone().addScaledVector(m.normalize(), L1);
-  }
-  else if (d < Math.abs(L1 - L2h) - 1e-6) { reachOk = false; elbow = S0.clone().addScaledVector(dir, L1); }
-  else {
-    const k = (L1 * L1 - L2h * L2h + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - k * k));
-    const perp = new V3(-dir.z, 0, dir.x), base = S0.clone().addScaledVector(dir, k);
-    const e1 = base.clone().addScaledVector(perp, h), e2 = base.clone().addScaledVector(perp, -h);
-    // fold toward the back (may hit the wall: warned), unless the head can't swivel that far
-    // A real arm doesn't flip its elbow: keep it on the side it was on (nearest pose), else use the
-    // saved side; with neither, fold toward the back unless the head can't swivel that far.
-    if (armMemory.elbow) elbow = e1.distanceToSquared(armMemory.elbow) <= e2.distanceToSquared(armMemory.elbow) ? e1 : e2;
-    else if (P.elbow === 1 || P.elbow === -1) elbow = P.elbow === 1 ? e1 : e2;
-    else {
-      const back = e1.z < e2.z ? e1 : e2, front = back === e1 ? e2 : e1;
-      elbow = swivelOf(back) <= ARM.headSwivel || swivelOf(front) > ARM.headSwivel ? back : front;
-    }
-    if (h > 1e-3) P.elbow = elbow === e1 ? 1 : -1;   // side of the pole→head line, seen from above
-  }
-  elbow.y = yLow;
-  armMemory.elbow = elbow.clone();
-  const swivel = swivelOf(elbow), swivelOk = swivel <= ARM.headSwivel + 0.5;
-  const dark = 0x45484e;
+  const j = units.pole.state; if (!armReady(j)) return;
+  const f = armFK(j), dark = 0x45484e;
+  const S0 = f.S0.clone().setY(f.yLow), elbow = f.elbow.clone().setY(f.yLow), root = f.elbow.clone().setY(f.yRoot);
   bar(u, 'seg1', S0, elbow, ARM.lowT, dark, 'Arm (lower)');
-  addBox(u, 'riser', 1.5, ARM.lowT + ARM.riser, 1.5, 0x3a3d42, elbow.x, (yLow - ARM.lowT / 2 + yRoot) / 2, elbow.z, null, { label: 'Arm (elbow riser)' });
-  const root = new V3(elbow.x, yRoot, elbow.z);
-  bar(u, 'seg2', root, E, 1.2, dark, 'Arm (gas spring)');
-  // second link of the parallelogram, just below
-  bar(u, 'seg2', root.clone().add(new V3(0, -0.9, 0)), E.clone().add(new V3(0, -0.9, 0)), 0.45, 0x5a5d63, 'Arm (gas spring)');
-  addCyl(u, 'head', 0.6, 2.2, 0x3a3d42, E.x, E.y - 0.4, E.z);
-  bar(u, 'head', E, vesa.clone().addScaledVector(fwd, -0.25), 1.0, 0x5a5d63, 'Arm head');
-  const ext = Math.hypot(vesa.x - P.x, vesa.z - P.z);
-  armInfo = { ext, phi: phiRaw, swivel, heightOk, swivelOk, reachOk: reachOk && ext <= ARM.maxExt + 1e-6,
-    lo: yRoot + ARM.L2 * ARM.sinLo, hi: yRoot + ARM.L2 * ARM.sinHi };
-  armInfo.ok = armInfo.reachOk && heightOk && swivelOk;
+  addBox(u, 'riser', 1.5, ARM.lowT + ARM.riser, 1.5, 0x3a3d42, elbow.x, (f.yLow - ARM.lowT / 2 + f.yRoot) / 2, elbow.z, null, { label: 'Arm (elbow riser)' });
+  bar(u, 'seg2', root, f.E, 1.2, dark, 'Arm (gas spring)');
+  bar(u, 'seg2', root.clone().add(new V3(0, -0.9, 0)), f.E.clone().add(new V3(0, -0.9, 0)), 0.45, 0x5a5d63, 'Arm (gas spring)');
+  addCyl(u, 'head', 0.6, 2.2, 0x3a3d42, f.E.x, f.E.y - 0.4, f.E.z);
+  bar(u, 'head', f.E, f.V.clone().addScaledVector(dirOf(f.yaw), -0.25), 1.0, 0x5a5d63, 'Arm head');
 }
 function bar(u, part, A, B, t, color, label) {
   const len = A.distanceTo(B); if (len < 1e-3) return;
@@ -765,7 +829,10 @@ function bar(u, part, A, B, t, color, label) {
 // Collisions: oriented-box SAT on every collider pair from different units
 // ============================================================================
 // The arm clamp may grip any desk edge, so pole/clamp vs desk (top and trestles) never counts.
-const SKIP = new Set(['arm|monitor', 'monitor|arm', 'arm|pole', 'pole|arm', 'pole|desk', 'desk|pole']);
+const SKIP = new Set(['arm|pole', 'pole|arm', 'pole|desk', 'desk|pole']);
+// the head is bolted to the VESA plate (and the iPad side arm), so it alone may touch the monitor unit
+const touching = (A, B) => (A.u === 'arm' && B.u === 'monitor' && A.c.userData.part === 'arm:head') ||
+                           (B.u === 'arm' && A.u === 'monitor' && B.c.userData.part === 'arm:head');
 const EPS = 0.02;
 function obb(m) {
   const e = m.matrixWorld.elements, p = m.geometry.parameters;
@@ -795,7 +862,7 @@ function checkCollisions() {
   const hitParts = new Set(); overlaps = []; armHitsWall = false;
   for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
     const A = list[i], B = list[j];
-    if (A.u === B.u || SKIP.has(A.u + '|' + B.u)) continue;
+    if (A.u === B.u || SKIP.has(A.u + '|' + B.u) || touching(A, B)) continue;
     if (overlap(A.o, B.o)) {
       if ((A.u === 'arm' && B.u === 'wall') || (A.u === 'wall' && B.u === 'arm')) armHitsWall = true;
       for (const X of [A, B]) {   // the wall itself stays its own colour; the pill warns instead
@@ -888,9 +955,8 @@ function updateClearances() {
   dims.ipad.line.material = over > 0 ? dimMat.bad : dimMat.ok;
   dims.ipad.label.el.classList.toggle('bad', over > 0);
 
-  const ch = mo.state.y, A = armInfo;
-  const need = A.heightOk ? 0 : (ch > A.hi ? ch - A.hi : ch - A.lo);   // collar move that would fix the height
-  const collarFits = po.state.y + need >= ARM.collarMin - 1e-6 && po.state.y + need <= ARM.collarMax + 1e-6;
+  const ch = mo.state.y, J = po.state, AF = armFK(J);
+  const lo = AF.yRoot + ARM.L2 * ARM.sinLo, hi = AF.yRoot + ARM.L2 * ARM.sinHi, ext = Math.hypot(AF.V.x - J.x, AF.V.z - J.z);
   const row = (k, v, cls = '') => `<tr><td>${k}</td><td class="v ${cls}">${v}</td></tr>`;
   const sign = v => v < 0 ? 'neg' : 'pos';
   clrTable.innerHTML =
@@ -900,15 +966,14 @@ function updateClearances() {
     row('Monitor bottom → laptop top', lapOn ? fmt(monLap) : 'hidden', lapOn ? sign(monLap) : '') +
     row('Arm collar → rack top', fmt(collar), sign(collar)) +
     row(`iPad overhang past desk ${overLeft ? 'left' : 'right'} edge`, over > 0 ? fmt(over) : `none (${fmt(-over)} inside)`, over > 0 ? 'neg' : 'pos') +
-    row('Screen center above desk', fmt(ch), A.heightOk ? '' : 'neg') +
-    row('Arm height range at this collar', `${A.lo.toFixed(1)}–${A.hi.toFixed(1)}″${A.heightOk ? '' : ` ⚠ ${need > 0 ? 'raise' : 'lower'} collar ${Math.abs(need).toFixed(2)}″${collarFits ? '' : ' (past the pole\'s end)'}`}`, A.heightOk ? '' : 'neg') +
-    row('Arm full range (collar + gas spring)', `${ARM.centerMin}–${ARM.centerMax}″`) +
-    row('Gas-spring arm angle', `${A.heightOk ? A.phi.toFixed(1) + '°' : 'beyond'} (${ARM.phiMin}° to +${ARM.phiMax}°)`, A.heightOk ? '' : 'neg') +
-    row('Head swivel', `${A.swivel.toFixed(0)}° (max ${ARM.headSwivel}°)`, A.swivelOk ? '' : 'neg') +
+    row('Screen center above desk', fmt(ch)) +
+    row('Arm height range at this collar', `${lo.toFixed(1)}–${hi.toFixed(1)}″`) +
+    row('Arm full range (collar + gas spring)', `${ARM.rangeMin.toFixed(1)}–${ARM.rangeMax.toFixed(1)}″`) +
+    row('Arm joints', `collar ${J.y.toFixed(2)}″ · lower ${J.a1.toFixed(0)}° · elbow ${J.a2.toFixed(0)}° · gas ${J.p.toFixed(1)}° · head ${J.a3.toFixed(0)}°`) +
     row('ALEX gap to desk right edge', fmt(ab.min.x - DESK_W), sign(ab.min.x - DESK_W)) +
     row('ALEX top below desktop', fmt(-ab.max.y)) +
-    row('Arm reach (pole → VESA)', `${A.ext.toFixed(2)} / ${ARM.maxExt}″${A.reachOk ? '' : ' ⚠ out of reach'}`, A.reachOk ? '' : 'neg');
-  const armMsg = !A.reachOk ? '⚠ Arm can\'t reach' : !A.heightOk ? `⚠ Monitor ${need > 0 ? 'too high' : 'too low'} for arm` : !A.swivelOk ? '⚠ Head over-swivelled' : '';
+    row('Arm reach (pole → VESA)', `${ext.toFixed(2)} / ${ARM.maxExt}″`);
+  const armMsg = armResidual > 0.1 ? `⚠ Arm can't reach there (${armResidual.toFixed(1)}″ short)` : '';
   $('armPill').hidden = !armMsg; $('armPill').textContent = armMsg;
   overlapsEl.textContent = overlaps.length ? '⚠ Overlap: ' + overlaps.join('; ') : 'No overlaps';
   overlapsEl.style.color = overlaps.length ? '' : 'var(--ok)';
@@ -944,6 +1009,7 @@ function update() {
   units.wall.group.visible = S.wall;
   units.wall.group.position.z = wallZ();
   units.alex.state = DEFAULTS.alex(); apply(units.alex);
+  placeMonitorFromArm();
   updateArm();
   scene.updateMatrixWorld(true);
   checkCollisions();
@@ -962,7 +1028,7 @@ function update() {
 const undoStack = [], redoStack = [], UNDO_MAX = 100;
 function snapshot() {
   const o = { S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, deskWall: S.deskWall, alexWall: S.alexWall }, units: {} };
-  for (const id of ORDER) { const u = units[id]; o.units[id] = { state: { ...u.state }, moved: u.moved, autoY: u.autoY }; }
+  for (const id of ORDER) { const u = units[id]; o.units[id] = { state: { ...u.state }, moved: u.moved }; }
   return JSON.stringify(o);
 }
 function commit(before) {
@@ -973,7 +1039,6 @@ function commit(before) {
 const undoable = fn => (...args) => { const before = snapshot(); fn(...args); commit(before); };
 function restore(json) {
   const o = typeof json === 'string' ? JSON.parse(json) : json;
-  armMemory.elbow = null;   // take the elbow side from the restored layout
   const src = o.S || {}, next = {};
   if (src.rack in RACKS) next.rack = src.rack;
   if (src.mon in MONITORS) next.mon = src.mon;
@@ -991,9 +1056,9 @@ function restore(json) {
     const u = units[id], v = o.units && o.units[id], st = v && v.state;
     if (!st || !['x', 'y', 'z', 'ry'].every(k => Number.isFinite(st[k]))) { resetUnit(id); continue; }
     u.state = { x: st.x, y: st.y, z: st.z, ry: st.ry };
-    if (id === 'pole' && (st.elbow === 1 || st.elbow === -1)) u.state.elbow = st.elbow;
+    if (id === 'pole') for (const k of ['a1', 'a2', 'p', 'a3']) if (Number.isFinite(st[k])) u.state[k] = st[k];
     if (id === 'monitor') { u.state.tilt = Number.isFinite(st.tilt) ? st.tilt : 0; u.state.roll = st.roll === 90 ? 90 : 0; }
-    u.moved = !!v.moved; u.autoY = v.autoY; apply(u);
+    u.moved = !!v.moved; apply(u);
   }
   if (!S.laptop && selected === 'laptop') selected = null;
   update();
@@ -1080,7 +1145,7 @@ window.addEventListener('pointermove', e => {
       delta = new V3(); delta[drag.axes[0]] = v;
     }
     for (const k of drag.axes) u.state[k] = drag.s0[k] + delta[k];
-    if (drag.axes.includes('y')) { if (drag.id === 'monitor') u.autoY = false; else u.moved = true; }
+    if (drag.axes.includes('y')) u.moved = true;
     if (drag.axes.includes('x') || drag.axes.includes('z')) u.moved = true;
   }
   apply(u); update();
@@ -1130,9 +1195,8 @@ function syncSelPanel() {
   const set = (el, v) => { if (document.activeElement !== el) el.value = v; };
   set(inX, s.x.toFixed(2)); set(inY, s.y.toFixed(2)); set(inZ, s.z.toFixed(2));
   set(inR, (Math.round(s.ry / DEG * 10) / 10).toString());
-  $('monRow').hidden = $('armRow').hidden = selected !== 'monitor';
-  $('poleRow').hidden = selected !== 'pole';
-  $('elbowRow').hidden = selected !== 'pole' && selected !== 'monitor';
+  $('monRow').hidden = selected !== 'monitor';
+  syncArmPanel();
   if (selected === 'monitor') { set($('inTilt'), (s.tilt || 0).toString()); $('portraitBtn').classList.toggle('on', !!s.roll); }
   $('selCm').textContent = `Pivot ${(s.x * 2.54).toFixed(1)}, ${(s.y * 2.54).toFixed(1)}, ${(s.z * 2.54).toFixed(1)} cm` +
     (selected === 'monitor' ? ' · pivot = VESA point' : selected === 'pole' ? ' · Y = collar bottom' : ' · pivot = bottom center');
@@ -1144,7 +1208,7 @@ const onInput = undoable(() => {
   if (x !== null) u.state.x = x;
   if (z !== null) u.state.z = z;
   if (r !== null) u.state.ry = r * DEG;
-  if (y !== null && Math.abs(y - u.state.y) > 1e-6) { u.state.y = y; if (selected === 'monitor') u.autoY = false; }
+  if (y !== null && Math.abs(y - u.state.y) > 1e-6) u.state.y = y;
   u.moved = true; apply(u); update();
 });
 [inX, inY, inZ, inR].forEach(el => el.addEventListener('change', onInput));
@@ -1186,40 +1250,50 @@ const dropAll = undoable(() => {
 });
 $('dropAllBtn').addEventListener('click', dropAll);
 
-// Fold the arm flat along the wall (lower arm parallel to it, gas arm folded back over it), monitor
-// hung just in front of the pole, like the listing's 8.75" photo. Keeps the monitor's height when
-// the arm can hold it.
-function foldArm(sx) {
-  const P = units.pole.state, M = units.monitor;
-  const yRoot = P.y + COLLAR_H + ARM.lowT + ARM.riser;
-  const y = Math.max(yRoot + ARM.L2 * ARM.sinLo, Math.min(yRoot + ARM.L2 * ARM.sinHi, M.state.y));
-  const L2h = ARM.L2 * Math.cos(Math.asin((y - yRoot) / ARM.L2));
-  const ex = P.x + sx * (Math.abs(ARM.L1 - L2h) + 0.02);
-  Object.assign(M.state, { x: ex, y, z: P.z + ARM.head, ry: 0 });
-  M.moved = true; M.autoY = false; apply(M);
-  armMemory.elbow = new V3(P.x + sx * ARM.L1, 0, P.z);
+// ---- arm joint sliders + fold presets ----
+const JOINT_UI = {
+  y: { el: 'jy', fmt: v => `${v.toFixed(2)}″` }, a1: { el: 'ja1', fmt: v => `${v.toFixed(0)}°` },
+  a2: { el: 'ja2', fmt: v => `${v.toFixed(0)}°` }, p: { el: 'jp', fmt: v => `${v.toFixed(1)}°` },
+  a3: { el: 'ja3', fmt: v => `${v.toFixed(0)}°` },
+};
+$('jy').min = ARM.collarMin.toFixed(2); $('jy').max = ARM.collarMax.toFixed(2);
+$('jp').min = ARM.phiMin; $('jp').max = ARM.phiMax;
+let jointBefore = null;
+function armChanged() {
+  armResidual = 0; units.pole.moved = units.monitor.moved = true;
+  units.pole.apply(units.pole); placeMonitorFromArm(); update();
 }
-document.querySelectorAll('[data-fold]').forEach(b => b.addEventListener('click', undoable(() => { foldArm(+b.dataset.fold); update(); })));
-$('flipElbow').addEventListener('click', undoable(() => {
-  const P = units.pole.state; P.elbow = P.elbow === 1 ? -1 : 1; armMemory.elbow = null; update();
-}));
-document.querySelectorAll('[data-collar]').forEach(b => b.addEventListener('click', undoable(() => {
-  const u = units.pole; u.state.y = b.dataset.collar === 'min' ? ARM.collarMin : ARM.collarMax; u.moved = true; apply(u); update();
+for (const [k, ui] of Object.entries(JOINT_UI)) {
+  const el = $(ui.el);
+  el.addEventListener('input', () => { if (!jointBefore) jointBefore = snapshot(); units.pole.state[k] = +el.value; armChanged(); });
+  el.addEventListener('change', () => { if (jointBefore) { commit(jointBefore); jointBefore = null; } });
+}
+function syncArmPanel() {
+  const show = selected === 'pole' || selected === 'monitor';
+  $('armPanel').hidden = !show; if (!show) return;
+  const j = units.pole.state;
+  for (const [k, ui] of Object.entries(JOINT_UI)) {
+    if (document.activeElement !== $(ui.el)) $(ui.el).value = j[k];
+    $(ui.el + 'Out').textContent = ui.fmt(j[k]);
+  }
+}
+// Fold: lower arm along the wall to one side, gas arm doubled back over it, screen facing you.
+document.querySelectorAll('[data-fold]').forEach(b => b.addEventListener('click', undoable(() => {
+  const sx = +b.dataset.fold;
+  Object.assign(units.pole.state, { a1: 90 * sx, a2: 180, a3: 90 * sx });
+  armChanged();
 })));
-// put the monitor at the lowest / highest point the arm reaches from its current collar
-document.querySelectorAll('[data-armh]').forEach(b => b.addEventListener('click', undoable(() => {
-  const u = units.monitor; u.state.y = b.dataset.armh === 'lo' ? armInfo.lo : armInfo.hi; u.autoY = false; apply(u); update();
-})));
+$('armReset').addEventListener('click', undoable(() => { resetUnit('monitor'); armResidual = 0; update(); }));
 const setTilt = undoable(t => {
-  const u = units.monitor; u.state.tilt = t; u.moved = true; apply(u); update();
+  const u = units.monitor; u.state.tilt = t; u.moved = true; placeMonitorFromArm(); update();
   $('inTilt').value = u.state.tilt;   // show the clamped value even while the box has focus
 });
 $('inTilt').addEventListener('change', () => { const v = +$('inTilt').value; if (Number.isFinite(v)) setTilt(v); });
 document.querySelectorAll('[data-tilt]').forEach(b => b.addEventListener('click', () => setTilt((units.monitor.state.tilt || 0) + +b.dataset.tilt)));
 $('portraitBtn').addEventListener('click', undoable(() => {
-  const u = units.monitor; u.state.roll = u.state.roll ? 0 : 90; u.moved = true;
-  if (u.autoY) u.state.y = monitorAutoY();
-  apply(u); update();
+  const u = units.monitor; u.state.roll = u.state.roll ? 0 : 90;
+  if (!u.moved) { armInitFor(DEFAULTS.monitor(), units.pole.state); units.pole.apply(units.pole); }
+  placeMonitorFromArm(); update();
 }));
 $('selReset').addEventListener('click', undoable(() => { if (selected) { resetUnit(selected); update(); } }));
 $('selClose').addEventListener('click', () => select(null));
@@ -1331,7 +1405,7 @@ $('notesBody').innerHTML =
   <li>⤓ Drop all lowers the rack, keyboard, laptop, MixPre and dock onto whatever is under each one (rack, desk or floor). The monitor and arm stay where the arm holds them.</li>
   <li>Menu → Layouts saves named setups in this browser; Open recent ▸ jumps between the last few. Export / Import moves them to another device as a file.</li>
   <li>Top, Front and Side show a flat view with no perspective (highlighted while active). Orbit away and perspective comes back; pan and zoom keep it flat.</li>
-  <li>Arm (select the pole or monitor): Fold left / right folds the arm flat along the wall with the monitor in front of the pole; then drag the monitor forward with Z and the elbow swings out sideways. The elbow stays on its side as you move things; ⇄ Flip elbow swaps it.</li>
+  <li>Arm (select the pole or monitor): sliders set the collar, lower arm, elbow, gas-spring arm and head swivel, and the monitor follows. Dragging or typing a monitor position moves the joints instead, smoothly from where they are; if it can't get there, it stops at its limit and says so. Fold left / right tucks it along the wall.</li>
   <li>Undo / Redo step back through moves, rotations and toggles (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z). Camera moves aren't undone.</li>
   <li>Objects can't be scaled. The iPad, its side arm and the plate move with the monitor.</li></ul>`;
 function setMenu(open) {
