@@ -108,6 +108,11 @@
   #lightPane .slide .icon { width:28px; padding:2px 0; }
   .lhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
   .lhead h3 { margin:0; }
+  #left section[data-collapse] > h3 { cursor:pointer; user-select:none; display:flex; align-items:center; gap:6px; }
+  #left section[data-collapse] > h3::before { content:'▾'; font-size:10px; transition:transform .15s; }
+  #left section.folded > h3 { margin-bottom:0; }
+  #left section.folded > h3::before { transform:rotate(-90deg); }
+  #left section.folded > :not(h3) { display:none !important; }
   .sw { min-width:44px; }
   select { font:inherit; font-size:12.5px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); }
 
@@ -240,7 +245,11 @@
 
 <aside id="left" class="sidebar" aria-label="Setup">
   <div class="sheetHead"><b>Setup</b><button class="icon" data-close="left" aria-label="Close">✕</button></div>
-  <section>
+  <section data-collapse="objects">
+    <h3>Objects</h3>
+    <div id="objList" class="list"></div>
+  </section>
+  <section data-collapse="equipment">
     <h3>Equipment</h3>
     <div class="field"><label>Rack</label>
       <div class="seg"><button data-k="rack" data-v="2U">2U</button><button data-k="rack" data-v="4U">4U</button></div></div>
@@ -261,7 +270,7 @@
     <div class="field"><label>iPad</label>
       <div class="seg"><button data-k="ipad" data-v="left" title="Left of the monitor">←</button><button data-k="ipad" data-v="above" title="Above the monitor">↑</button><button data-k="ipad" data-v="below" title="Below the monitor">↓</button><button data-k="ipad" data-v="right" title="Right of the monitor">→</button></div></div>
   </section>
-  <section id="room">
+  <section id="room" data-collapse="room">
     <h3>Room</h3>
     <div class="slide"><span>Desk ↔ wall</span><button data-nudge="deskWall" data-d="-0.25" aria-label="Desk closer to the wall">−</button>
       <input id="deskWall" type="range" min="0" max="24" step="0.25" aria-label="Desk to wall">
@@ -277,10 +286,6 @@
       <div class="slide c"><span>Height</span><input id="winH" type="range" min="12" max="60" step="0.5" aria-label="Window height"><output id="winHOut"></output></div>
       <div class="sub">Centre X from the desk's left edge · sill height from the desktop.</div>
     </div>
-  </section>
-  <section>
-    <h3>Objects</h3>
-    <div id="objList" class="list"></div>
   </section>
   <section>
     <h3>Arrange</h3>
@@ -439,21 +444,18 @@ const DBX = { w: 19, h: 1.75, d: 8 };                 // depth assumed
 // 6 mm hex (sets height) → lower arm on top of the collar, swivels around the pole → a small
 // hinge at the elbow → gas-spring parallelogram arm → VESA head: 180° swivel, −30°/+45° tilt,
 // 180° rotation, quick-release plate.
-// Fitted to: 27.5" max screen-center height (collar at the pole top, gas arm fully up), 26" max
-// extension (gas arm level), the gas arm's −27°…+51° swing read off the listing photos, a ~70 mm
-// head scaled off the VESA close-up, and a small elbow hinge. That gives the gas arm's length;
-// the lower arm is what's left of the 26" (≈8", which matches the photos).
+// Lengths from the VIVO spec sheet (lower 11.5", gas arm 12.5", 26" reach); swing read off the listing photos.
 const COLLAR_H = 2.4;   // arm-support height, estimated from the listing photo
-const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, phiMin: -27, phiMax: 51, head: 2.75, headSwivel: 90,
+const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, phiMin: -27, phiMax: 51, head: 2.0, headSwivel: 90,
   lowT: 1.5, riser: 1.0, centerMax: 27.5, tiltMin: -30, tiltMax: 45 };
 ARM.sinLo = Math.sin(ARM.phiMin * Math.PI / 180); ARM.sinHi = Math.sin(ARM.phiMax * Math.PI / 180);
 ARM.collarMax = ARM.poleH - COLLAR_H;                                     // collar top flush with the pole top
-ARM.L2 = (ARM.centerMax - ARM.collarMax - COLLAR_H - ARM.lowT - ARM.riser) / ARM.sinHi;   // gas arm
-ARM.L1 = ARM.maxExt - ARM.L2 - ARM.head;                                  // lower arm: the rest of the reach
+ARM.L1 = 11.5;   // lower arm, pivot to pivot (VIVO spec)
+ARM.L2 = 12.5;   // gas-spring arm, pivot to pivot (VIVO spec); with the 2" head that's the 26" reach
 ARM.collarMin = 0.3;                                                     // bottom of the shaft (clamp plate)
 ARM.rangeMin = ARM.collarMin + COLLAR_H + ARM.lowT + ARM.riser + ARM.L2 * ARM.sinLo;
 ARM.rangeMax = ARM.collarMax + COLLAR_H + ARM.lowT + ARM.riser + ARM.L2 * ARM.sinHi;
-const CLAMP_W = 2.4, CLAMP_D = 2.4, POLE_GAP = 1.5, COLLAR_GAP = 1, COLLAR_R = 1.15;
+const CLAMP_W = 4.3, CLAMP_D = 4.5, CLAMP_DROP = 5.75, POLE_GAP = 1.5, COLLAR_GAP = 1, COLLAR_R = 1.15;
 
 // ---- 4. Monitors (no stand) ---------------------------------------------------
 const MONITORS = {
@@ -505,7 +507,7 @@ const NOTES = {
     `Rack 2U height 6.5″ (same 21 × 14″ footprint) is unverified. Rack internals (1.5″ top/bottom panels, 1″ sides, open back) are simplified.`,
     `dbx 286s depth 8″ is assumed; drawn in the top rack space, front flush with the rack front.`,
     `VIVO STAND-V101GT: 13″ pole and 26″ max extension are from retailer listings; the 27.5″ max screen-center height is from the Amazon listing images.`,
-    `Arm segment lengths aren't published. Modelled as: lower arm ${ARM.L1.toFixed(1)}″, a small ${ARM.riser}″ elbow hinge, gas-spring arm ${ARM.L2.toFixed(1)}″ swinging ${ARM.phiMin}° to +${ARM.phiMax}° (read off the listing photos) and a ${ARM.head}″ head (≈70 mm, scaled off the VESA close-up), fitted to the 27.5″ max height and 26″ reach. Collar ${COLLAR_H}″ tall (from the photo), pole Ø 1.4″ and clamp 2.4 × 2.4″ are estimates. The clamp's left edge is 1.5″ from the rack.`,
+    `Arm segments from VIVO's spec: lower arm ${ARM.L1}″ and gas-spring arm ${ARM.L2}″ pivot to pivot, a ${ARM.head}″ head to the VESA face (26″ max reach), a small ${ARM.riser}″ elbow hinge, gas arm swinging ${ARM.phiMin}° to +${ARM.phiMax}° (read off the listing photos). The arm-support collar slides on the shaft (${COLLAR_H}″ tall, estimated). Clamp base 4.3 × 4.5″ on the desktop; its under-desk bracket reaches ~5.75″ below the top. Pole Ø 1.4″ is an estimate. The clamp's left edge is 1.5″ from the rack.`,
     `The collar can't go above ${ARM.collarMax.toFixed(1)}″ (its top meets the pole top), so "1″ above the 4U rack" (11″) isn't possible; it stops at ${ARM.collarMax.toFixed(1)}″.`,
     `Monitor tilt pivots at the VESA point (the real tilt joint is slightly behind it). Portrait turns the iPad and its side arm with the monitor, as they share the VESA plate.`,
     `The arm's head is assumed level with the VESA center, swivelling ±90° relative to the gas-spring arm.`,
@@ -868,9 +870,11 @@ defUnit('wall', 'Back wall', u => {
 defUnit('pole', 'VIVO V101GT pole', u => {
   const dark = 0x3a3d42, T = TOP_T;
   addBox(u, 'clamp', CLAMP_W, 0.3, CLAMP_D, dark, 0, 0.15, 0, null, { collider: false });
-  addBox(u, 'clamp', CLAMP_W, T + 0.9, 0.5, dark, 0, -T / 2 - 0.15, -CLAMP_D / 2 - 0.25, null, { label: 'Arm clamp' });
+  // C-clamp: spine behind the desk edge reaching ~5.75" below the desktop, a bracket under the lip
+  addBox(u, 'clamp', CLAMP_W, CLAMP_DROP + 0.3, 0.5, dark, 0, 0.3 - (CLAMP_DROP + 0.3) / 2, -CLAMP_D / 2 - 0.25, null, { label: 'Arm clamp' });
   addBox(u, 'clamp', CLAMP_W, 0.4, CLAMP_D + 0.5, dark, 0, -T - 0.4, -0.25, null, { collider: false });
-  addCyl(u, 'clamp', 0.25, 1.4, 0x888888, 0, -T - 1.1, 0.3);
+  addBox(u, 'clamp', CLAMP_W, 0.4, 2, dark, 0, -CLAMP_DROP + 0.2, -CLAMP_D / 2 + 0.75, null, { collider: false });
+  addCyl(u, 'clamp', 0.25, CLAMP_DROP - T - 0.8, 0x888888, 0, (-T - 0.6 - CLAMP_DROP + 0.4) / 2, 0.3);
   addCyl(u, 'pole', ARM.poleR, ARM.poleH - 0.3, 0xa9adb3, 0, 0.3 + (ARM.poleH - 0.3) / 2, 0);
   addCollider(u, 'pole', ARM.poleR * 2, ARM.poleH - 0.3, ARM.poleR * 2, 0, 0.3 + (ARM.poleH - 0.3) / 2, 0, null, 'Arm pole');
   u.collar = addCyl(u, 'collar', COLLAR_R, COLLAR_H, 0x4a4e55, 0, 0, 0);
@@ -2131,6 +2135,20 @@ function syncLampPanel() {
   ctl.querySelectorAll('[data-lo]').forEach(o => {
     const k = o.dataset.lo, sl = T.sliders.find(x => x[0] === k);
     o.textContent = k === 'b' ? `${Math.round(st.b * 100)}%` : `${(+st[k]).toFixed(sl && sl[4] < 1 ? 1 : 0)}${sl ? sl[5] : ''}`;
+  });
+}
+// ---- collapsible Setup sections (remembered) ----
+{
+  const KEY = 'deskplan3d.collapsed';
+  let folded; try { folded = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  if (!Array.isArray(folded)) folded = ['room'];
+  document.querySelectorAll('#left section[data-collapse]').forEach(sec => {
+    sec.classList.toggle('folded', folded.includes(sec.dataset.collapse));
+    sec.querySelector('h3').addEventListener('click', () => {
+      sec.classList.toggle('folded');
+      const now = [...document.querySelectorAll('#left section.folded')].map(x => x.dataset.collapse);
+      try { localStorage.setItem(KEY, JSON.stringify(now)); } catch (e) {}
+    });
   });
 }
 // ---- light controls ----
