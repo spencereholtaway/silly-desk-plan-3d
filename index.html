@@ -95,6 +95,14 @@
   #room .slide output { width:44px; }
   #room .slide.c { flex-wrap:nowrap; margin:4px 0; }
   #room .slide.c > span { width:62px; }
+  #lightPane .slide.c { display:flex; align-items:center; gap:6px; margin:6px 0; }
+  #lightPane .slide.c > span { width:82px; }
+  #lightPane .slide output { width:50px; }
+  #lightPane .slide .icon { width:28px; padding:2px 0; }
+  .lhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+  .lhead h3 { margin:0; }
+  .sw { min-width:44px; }
+  select { font:inherit; font-size:12.5px; padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); }
 
   /* ---- measurements ---- */
   #clrTable { border-collapse:collapse; width:100%; }
@@ -279,7 +287,8 @@
 <aside id="right" class="sidebar" aria-label="Details">
   <div class="tabs" role="tablist">
     <button role="tab" data-tab="inspect" class="on">Inspector</button>
-    <button role="tab" data-tab="measure">Measurements</button>
+    <button role="tab" data-tab="measure">Measure</button>
+    <button role="tab" data-tab="light">Lighting</button>
     <button role="tab" data-tab="notes">Notes</button>
     <button class="mobile" data-close="right" aria-label="Close">✕</button>
   </div>
@@ -338,6 +347,34 @@
     <section>
       <h3>Overlaps</h3>
       <div id="overlaps"></div>
+    </section>
+  </div>
+  <div class="tabpane" data-pane="light" hidden id="lightPane">
+    <section>
+      <div class="lhead"><h3>Studio light</h3><button class="icon sw" data-sw="studio">On</button></div>
+      <div class="sub">An even key light from the front-left, for looking at the layout.</div>
+    </section>
+    <section>
+      <div class="lhead"><h3>Ceiling light</h3><button class="icon sw" data-sw="ceilOn">On</button></div>
+      <div id="ceilCtl">
+        <div class="slide c"><span>Brightness</span><input id="ceilB" type="range" min="0.1" max="1.5" step="0.05" aria-label="Ceiling light brightness"><output id="ceilBOut"></output></div>
+        <div class="field"><label>Colour</label><div class="seg"><button data-ck="warm" title="2700 K">Warm</button><button data-ck="neutral" title="4000 K">Neutral</button><button data-ck="cool" title="5000 K">Cool</button></div></div>
+        <div class="slide c"><span>Behind desk</span><input id="ceilZ" type="range" min="0" max="120" step="1" aria-label="Distance behind the desk's front edge"><output id="ceilZOut"></output></div>
+        <div class="slide c"><span>Left / right</span><input id="ceilX" type="range" min="-40" max="100" step="1" aria-label="Left/right position, from the desk's left edge"><output id="ceilXOut"></output></div>
+        <div class="slide c"><span>Ceiling</span><input id="ceilH" type="range" min="84" max="120" step="1" aria-label="Ceiling height above the floor"><output id="ceilHOut"></output></div>
+        <div class="sub">Behind = from the desk's front edge toward your back. Ceiling = from the floor.</div>
+      </div>
+    </section>
+    <section>
+      <div class="lhead"><h3>Sunlight</h3><button class="icon sw" data-sw="sunOn">Off</button></div>
+      <div class="field"><label>Window faces</label><select id="facing" aria-label="Direction the window faces"></select></div>
+      <div id="sunCtl">
+        <div class="slide c"><span>Time</span><input id="sunHour" type="range" min="4" max="22" step="0.25" aria-label="Time of day (solar)"><output id="sunHourOut"></output>
+          <button id="sunPlay" class="icon" title="Play the day" aria-label="Play the day">▶</button></div>
+        <div class="slide c"><span>Month</span><input id="sunMonth" type="range" min="1" max="12" step="1" aria-label="Month"><output id="sunMonthOut"></output></div>
+        <div class="slide c"><span>Latitude</span><input id="sunLat" type="range" min="-65" max="65" step="1" aria-label="Latitude"><output id="sunLatOut"></output></div>
+        <div class="sub" id="sunInfo"></div>
+      </div>
     </section>
   </div>
   <div class="tabpane" data-pane="notes" hidden>
@@ -460,6 +497,8 @@ const NOTES = {
     `Back wall is 8 ft tall (assumed). Desk and ALEX gaps to the wall default to ${WALL_GAP}″; set them with the Wall gaps button. The arm clamp's spine sits in the desk gap.`,
     `Anker dock placement (on the desk left of the rack, 1″ from the back edge, ports facing you) is assumed.`,
     `Screen image: Choose… stores your picture in this browser only; screen.jpg in the site folder is the default for everyone.`,
+    `Ceiling light: 5 ft behind the desk's front edge on an 8 ft ceiling, centred on the desk (from you); drawn as a 14″ drum fixture with an assumed brightness. Adjust it under Lighting.`,
+    `Sunlight: sun position from a simple declination/hour-angle model at local solar time (not clock time, so it can be ~±1 h off your watch), on the 21st of the month. The window is assumed to face WNW (292.5°) as you described; latitude defaults to 45°N, so set yours.`,
     `Seated eye height (${(EYE_Y + DESK_H).toFixed(1)}″ above floor, ${EYE_Y.toFixed(1)}″ above desk) is an anthropometric estimate for a 6′5″ person on a typical chair.`,
   ],
   sources: [
@@ -501,24 +540,103 @@ controls.screenSpacePanning = true;
 controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 controls.maxDistance = 600;
 
-// Lighting: soft sky light, a warm "sun" up front-left that casts the shadows (onto the desk, floor
-// and wall), and a cool fill from the right so shaded sides don't go flat.
-scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa0aa, 0.55));
-const sun = new THREE.DirectionalLight(0xfff4e6, 0.62);
-sun.position.set(DESK_W / 2 - 35, 95, DESK_D + 75);
-sun.target.position.set(DESK_W / 2 + 10, -12, DESK_D / 2);
-scene.add(sun, sun.target);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -80, right: 80, top: 80, bottom: -80, near: 20, far: 300 });
-sun.shadow.camera.updateProjectionMatrix();
-sun.shadow.bias = -0.0004;
-sun.shadow.normalBias = 0.03;
+// Lighting: three sources you can mix, plus a sky/ambient light that follows them.
+//  - studio key: warm directional from the front-left (and a cool fill from the right)
+//  - ceiling light: a point light on the ceiling behind the desk
+//  - sun: a directional light placed from the real sun position; the wall casts shadows, so it only
+//    gets in through the window
+const hemi = new THREE.HemisphereLight(0xffffff, 0x9aa0aa, 0.55);
+scene.add(hemi);
+function dirShadows(l, size) {
+  l.castShadow = true; l.shadow.mapSize.set(size, size);
+  Object.assign(l.shadow.camera, { left: -80, right: 80, top: 80, bottom: -80, near: 20, far: 320 });
+  l.shadow.camera.updateProjectionMatrix();
+  l.shadow.bias = -0.0004; l.shadow.normalBias = 0.03;
+}
+const key = new THREE.DirectionalLight(0xfff4e6, 0.62);
+key.position.set(DESK_W / 2 - 35, 95, DESK_D + 75);
+key.target.position.set(DESK_W / 2 + 10, -12, DESK_D / 2);
+scene.add(key, key.target); dirShadows(key, 2048);
 const fill = new THREE.DirectionalLight(0xe2ebff, 0.2);
 fill.position.set(DESK_W + 80, 35, DESK_D + 40);
 scene.add(fill);
+const sun = new THREE.DirectionalLight(0xfff4e6, 1);
+scene.add(sun, sun.target); dirShadows(sun, 2048);
+const ceil = new THREE.PointLight(0xffe2b8, 1, 0, 1);
+ceil.castShadow = true; ceil.shadow.mapSize.set(1024, 1024);
+ceil.shadow.camera.near = 1; ceil.shadow.camera.far = 400; ceil.shadow.bias = -0.002; ceil.shadow.normalBias = 0.04;
+scene.add(ceil);
+const ceilFixture = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 2.5, 32), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+const ceilRim = new THREE.Mesh(new THREE.CylinderGeometry(7.6, 7.6, 1, 32), new THREE.MeshLambertMaterial({ color: 0xe6e6e6 }));
+scene.add(ceilFixture, ceilRim);
+const CEIL_K = { warm: 0xffd9a8, neutral: 0xfff1e0, cool: 0xf2f6ff };
+// ---- Sun mode ----
+const COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+const compassName = deg => COMPASS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+// Sun elevation/azimuth (degrees; azimuth clockwise from north) on the 21st of a month at a
+// local *solar* time. Simple declination + hour-angle model: good to a degree or two.
+function sunPosition(lat, month, hour) {
+  const N = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334][month - 1] + 21;
+  const decl = 23.44 * Math.sin(DEG * 360 / 365 * (284 + N)) * DEG;
+  const H = 15 * (hour - 12) * DEG, phi = lat * DEG;
+  const el = Math.asin(Math.sin(phi) * Math.sin(decl) + Math.cos(phi) * Math.cos(decl) * Math.cos(H));
+  const cosAz = (Math.sin(decl) - Math.sin(el) * Math.sin(phi)) / (Math.cos(el) * Math.cos(phi));
+  let az = Math.acos(Math.max(-1, Math.min(1, cosAz))) / DEG;
+  if (H > 0) az = 360 - az;
+  return { el: el / DEG, az };
+}
+// Scene direction for a compass bearing: looking out of the window (−Z) is S.facing, its right is +X.
+const bearingDir = deg => { const a = (deg - S.facing) * DEG; return new V3(Math.sin(a), 0, -Math.cos(a)); };
+const roomCenter = new V3(DESK_W / 2, 0, DESK_D / 2);
+const SKY = { night: new THREE.Color(0x1c2440), dusk: new THREE.Color(0xf2a36e), day: new THREE.Color(0xcfe3f8) };
+let sunNow = null;
+function applyLighting() {
+  // studio
+  key.visible = S.studio; fill.visible = S.studio;
+  // ceiling light (the fixture's face sits ~3" below the ceiling; light just under it)
+  const cy = S.ceilH - DESK_H, cz = DESK_D + S.ceilZ;
+  ceil.visible = S.ceilOn;
+  ceil.position.set(S.ceilX, cy - 4, cz);
+  ceil.intensity = 0.95 * S.ceilB; ceil.distance = 0; ceil.color.set(CEIL_K[S.ceilK] || CEIL_K.warm);
+  ceilFixture.position.set(S.ceilX, cy - 1.75, cz); ceilRim.position.set(S.ceilX, cy - 0.5, cz);
+  ceilFixture.material.color.set(S.ceilOn ? 0xffffff : 0xcfd2d6);
+  // sun
+  let lightness = 1;
+  sunNow = sunPosition(S.lat, S.month, S.hour);
+  if (S.sunOn) {
+    const p = sunNow, up = Math.sin(p.el * DEG), flat = Math.cos(p.el * DEG);
+    sun.position.copy(roomCenter).addScaledVector(bearingDir(p.az).multiplyScalar(flat).add(new V3(0, up, 0)), 170);
+    sun.target.position.copy(roomCenter);
+    const day = Math.max(0, Math.min(1, p.el / 12));         // 0 at the horizon → 1 by 12° up
+    sun.visible = p.el > 0;
+    sun.intensity = 0.3 + 0.9 * day;
+    sun.color.set(0xffa860).lerp(new THREE.Color(0xfff4e6), day);
+    lightness = Math.max(0, Math.min(1, (p.el + 8) / 20));    // civil twilight → full day
+  } else sun.visible = false;
+  // sky / ambient: daylight through the window if the sun's on, plus a bit for the other lights
+  const daylight = S.sunOn ? lightness : 0;
+  hemi.intensity = 0.14 + (S.studio ? 0.38 : 0) + 0.3 * daylight + (S.ceilOn ? 0.1 * S.ceilB : 0);
+  hemi.color.set(S.sunOn && !S.studio ? 0x9db4ff : 0xffffff);
+  if (S.sunOn && !S.studio) hemi.color.lerp(new THREE.Color(0xffffff), daylight);
+  for (const l of [key, sun, ceil]) l.castShadow = S.shadows;
+  if (units.wall && units.wall.sky) {
+    if (!S.sunOn) units.wall.sky.material.color.copy(SKY.day);
+    else {
+      const c = SKY.night.clone().lerp(SKY.dusk, Math.max(0, Math.min(1, (sunNow.el + 8) / 10)));
+      units.wall.sky.material.color.copy(c.lerp(SKY.day, Math.max(0, Math.min(1, (sunNow.el - 2) / 12))));
+    }
+  }
+}
+function sunNowCalc() { sunNow = sunPosition(S.lat, S.month, S.hour); return sunNow; }
+const northArrow = (() => {
+  const sh = new THREE.Shape();
+  sh.moveTo(0, 9); sh.lineTo(3.2, 0); sh.lineTo(1, 1.2); sh.lineTo(1, -6); sh.lineTo(-1, -6); sh.lineTo(-1, 1.2); sh.lineTo(-3.2, 0); sh.lineTo(0, 9);
+  const g = new THREE.ShapeGeometry(sh); g.rotateX(-Math.PI / 2);
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x2f6fde, transparent: true, opacity: 0.8 }));
+  m.position.set(DESK_W / 2, -DESK_H + 0.05, DESK_D + 26); scene.add(m); return m;
+})();
 function applyShadows(on) {
-  renderer.shadowMap.enabled = on; sun.castShadow = on;
+  renderer.shadowMap.enabled = on; for (const l of [key, sun, ceil]) l.castShadow = on;
   scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
 }
 
@@ -607,7 +725,12 @@ function useScreenImage(mesh, aspect, flip) {
 }
 const S = { ipad: 'right', rack: '4U', mon: 'd', mac: 13, laptop: true, labels: false, wall: true, shadows: true, deskWall: WALL_GAP, alexWall: WALL_GAP,
   // window in the back wall: centre X, width, sill height above the desktop, height (inches)
-  winOn: true, winX: DESK_W / 2, winW: 24, winY: 0, winH: 36, mode: 'move' };
+  winOn: true, winX: DESK_W / 2, winW: 24, winY: 0, winH: 36,
+  // lighting: 'studio' (fixed key light) or 'sun' (real sun through the window); compass bearing
+  // the window looks out toward; month, solar time and latitude for the sun
+  studio: true, sunOn: false, facing: 292.5, month: 6, hour: 17, lat: 45,
+  // ceiling light: on, brightness, colour, distance behind the desk's front edge, left/right, ceiling height
+  ceilOn: true, ceilB: 0.8, ceilK: 'warm', ceilZ: 60, ceilX: DESK_W / 2, ceilH: 96, mode: 'move' };
 const wallZ = () => -S.deskWall;
 const WIN_LIM = { winX: [-20, 80], winW: [12, 72], winY: [-12, 36], winH: [12, 60] };
 const winClamp = (k, v) => Math.min(WIN_LIM[k][1], Math.max(WIN_LIM[k][0], v));
@@ -670,6 +793,7 @@ defUnit('rack', 'Gator Elite rack', u => {
 
 // ---- Monitor arm pole (pivot = pole axis at desk surface; state.y = collar bottom) ----
 defUnit('wall', 'Back wall', u => {
+  u.sky = null;
   const w = 160, cx = (DESK_W + ALEX.gap + ALEX.w) / 2, y0 = -DESK_H;
   const x0 = cx - w / 2, x1 = cx + w / 2, y1 = y0 + WALL_H, WALL_C = 0xe9e5de;
   const cl = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -687,7 +811,7 @@ defUnit('wall', 'Back wall', u => {
   }
   const m = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshLambertMaterial({ color: WALL_C }));
   m.userData = { base: new THREE.Color(WALL_C), unit: 'wall', part: 'wall:wall' };
-  m.receiveShadow = true;
+  m.receiveShadow = true; m.castShadow = true;   // blocks the sun except through the window
   u.group.add(m); u.meshes.push(m);
   addBox(u, 'wall', w, 3.5, 0.5, 0xf7f7f5, cx, y0 + 1.75, 0.25, null, { collider: false });   // baseboard
   if (!hasWin) { addCollider(u, 'wall', w, WALL_H, 0.5, cx, y0 + WALL_H / 2, -0.25, null, 'Back wall'); return; }
@@ -705,7 +829,7 @@ defUnit('wall', 'Back wall', u => {
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(ww, wh), new THREE.MeshLambertMaterial({ color: 0xbfd8ee, transparent: true, opacity: 0.35, depthWrite: false }));
   glass.position.set(wx, wy, -REC); u.group.add(glass);
   const sky = new THREE.Mesh(new THREE.PlaneGeometry(ww + 8, wh + 8), new THREE.MeshBasicMaterial({ color: 0xdcebfb }));
-  sky.position.set(wx, wy, -REC - 3); u.group.add(sky);
+  sky.position.set(wx, wy, -REC - 3); u.group.add(sky); u.sky = sky;
   addBox(u, 'wall', 0.8, wh, 0.8, 0xf4f4f2, wx, wy, -REC + 0.4, null, { collider: false });           // centre mullion
   // white trim around the opening and a 1" sill at the bottom
   const T = 1.75, F = 0.5, trim = 0xf6f6f4;
@@ -1018,13 +1142,22 @@ if (saved && saved.S) {
   for (const k of ['deskWall', 'alexWall']) if (Number.isFinite(o[k])) S[k] = Math.min(GAP_MAX, Math.max(0, o[k]));
   for (const k of Object.keys(WIN_LIM)) if (Number.isFinite(o[k])) S[k] = winClamp(k, o[k]);
   if (typeof o.winOn === 'boolean') S.winOn = o.winOn;
+  if (o.light === 'sun') { S.sunOn = true; S.studio = false; }        // older saves had a single mode
+  for (const k of ['studio', 'sunOn', 'ceilOn']) if (typeof o[k] === 'boolean') S[k] = o[k];
+  if (o.ceilK in CEIL_K) S.ceilK = o.ceilK;
+  for (const [k, lo, hi] of [['ceilB', 0.1, 1.5], ['ceilZ', 0, 120], ['ceilX', -40, 100], ['ceilH', 84, 120]])
+    if (Number.isFinite(o[k])) S[k] = Math.min(hi, Math.max(lo, o[k]));
+  if (Number.isFinite(o.facing)) S.facing = ((o.facing % 360) + 360) % 360;
+  if (Number.isFinite(o.month)) S.month = Math.min(12, Math.max(1, Math.round(o.month)));
+  if (Number.isFinite(o.hour)) S.hour = Math.min(22, Math.max(4, o.hour));
+  if (Number.isFinite(o.lat)) S.lat = Math.min(65, Math.max(-65, o.lat));
   if (['move', 'x', 'z', 'lift', 'rotate'].includes(o.mode)) S.mode = o.mode;
 }
 let currentLayout = saved && typeof saved.currentLayout === 'string' ? saved.currentLayout : null;
 let saveTimer = 0;
 function saveNow() {
   clearTimeout(saveTimer); saveTimer = 0;
-  const data = { v: 2, S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, wall: S.wall, shadows: S.shadows, deskWall: S.deskWall, alexWall: S.alexWall, mode: S.mode,
+  const data = { v: 2, S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, wall: S.wall, shadows: S.shadows, studio: S.studio, sunOn: S.sunOn, ceilOn: S.ceilOn, ceilB: S.ceilB, ceilK: S.ceilK, ceilZ: S.ceilZ, ceilX: S.ceilX, ceilH: S.ceilH, facing: S.facing, month: S.month, hour: S.hour, lat: S.lat, deskWall: S.deskWall, alexWall: S.alexWall, mode: S.mode,
     winOn: S.winOn, winX: S.winX, winW: S.winW, winY: S.winY, winH: S.winH }, units: {},
     cam: { p: camera.position.toArray(), t: controls.target.toArray() }, currentLayout };
   for (const id of ORDER) { const u = units[id]; data.units[id] = { state: u.state, moved: u.moved }; }
@@ -1252,6 +1385,10 @@ function update() {
   units.laptop.group.visible = S.laptop;
   units.wall.group.visible = S.wall;
   units.wall.group.position.z = wallZ();
+  applyLighting();
+  // the arrow points north (shape's +y → scene −Z before turning); only in Sun mode
+  northArrow.visible = S.sunOn;
+  northArrow.rotation.y = (S.facing) * DEG;
   // the room ends at the wall: floor and grid start there (or run under everything with the wall off)
   const floorZ = S.wall ? wallZ() + 120 : DESK_D / 2;
   floor.position.z = grid.position.z = floorZ;
@@ -1265,6 +1402,7 @@ function update() {
   syncSelPanel();
   syncButtons();
   syncRoom();
+  syncLight();
   syncObjects();
   syncLayoutStatus();
   scheduleSave();
@@ -1697,6 +1835,49 @@ $('scrClear').addEventListener('click', () => {
   let stored = null; try { stored = localStorage.getItem(SCREEN_KEY); } catch (e) { /* ignore */ }
   setScreenImage(stored || 'screen.jpg');   // screen.jpg is optional; a missing file just leaves the screen blank
 })();
+// ---- light controls ----
+$('facing').append(...COMPASS.map((n, i) => { const o = document.createElement('option'); o.value = i * 22.5; o.textContent = `${n} (${i * 22.5}°)`; return o; }));
+$('facing').addEventListener('change', () => { S.facing = +$('facing').value; update(); });
+document.querySelectorAll('[data-sw]').forEach(b => b.addEventListener('click', () => { S[b.dataset.sw] = !S[b.dataset.sw]; update(); }));
+document.querySelectorAll('[data-ck]').forEach(b => b.addEventListener('click', () => { S.ceilK = b.dataset.ck; update(); }));
+for (const k of ['ceilB', 'ceilZ', 'ceilX', 'ceilH']) $(k).addEventListener('input', () => { S[k] = +$(k).value; update(); });
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+for (const [id, k] of [['sunHour', 'hour'], ['sunMonth', 'month'], ['sunLat', 'lat']])
+  $(id).addEventListener('input', () => { S[k] = +$(id).value; update(); });
+let playTimer = 0;
+$('sunPlay').addEventListener('click', () => {
+  if (playTimer) { clearInterval(playTimer); playTimer = 0; syncLight(); return; }
+  if (S.hour >= 21.9) S.hour = 5;
+  playTimer = setInterval(() => {
+    S.hour = Math.min(22, S.hour + 0.1);
+    if (S.hour >= 22) { clearInterval(playTimer); playTimer = 0; }
+    update();
+  }, 50);
+  syncLight();
+});
+const fmtHour = h => `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+function syncLight() {
+  document.querySelectorAll('[data-sw]').forEach(b => { const on = !!S[b.dataset.sw]; b.classList.toggle('on', on); b.textContent = on ? 'On' : 'Off'; });
+  document.querySelectorAll('[data-ck]').forEach(b => b.classList.toggle('on', b.dataset.ck === S.ceilK));
+  $('ceilCtl').hidden = !S.ceilOn;
+  for (const k of ['ceilB', 'ceilZ', 'ceilX', 'ceilH']) if (document.activeElement !== $(k)) $(k).value = S[k];
+  $('ceilBOut').textContent = `${Math.round(S.ceilB * 100)}%`;
+  $('ceilZOut').textContent = `${S.ceilZ}″`; $('ceilXOut').textContent = `${S.ceilX.toFixed(0)}″`;
+  $('ceilHOut').textContent = `${Math.floor(S.ceilH / 12)}′${S.ceilH % 12 ? ` ${S.ceilH % 12}″` : ''}`;
+  if (document.activeElement !== $('facing')) $('facing').value = Math.round(S.facing / 22.5) * 22.5;
+  $('sunCtl').hidden = !S.sunOn;
+  for (const [id, k] of [['sunHour', 'hour'], ['sunMonth', 'month'], ['sunLat', 'lat']])
+    if (document.activeElement !== $(id)) $(id).value = S[k];
+  $('sunHourOut').textContent = fmtHour(S.hour);
+  $('sunMonthOut').textContent = MONTHS[S.month - 1] + ' 21';
+  $('sunLatOut').textContent = `${Math.abs(S.lat)}°${S.lat >= 0 ? 'N' : 'S'}`;
+  $('sunPlay').textContent = playTimer ? '❚❚' : '▶';
+  if (S.sunOn && sunNow) {
+    const off = Math.abs(((sunNow.az - S.facing + 540) % 360) - 180);   // angle between sun and the window's view
+    const where = sunNow.el <= 0 ? 'below the horizon' : off < 90 ? 'in front of the window — it can shine in' : 'behind the house';
+    $('sunInfo').textContent = `Sun ${sunNow.el.toFixed(0)}° up, from ${compassName(sunNow.az)} (${sunNow.az.toFixed(0)}°): ${where}. Solar time.`;
+  }
+}
 // ---- window sliders ----
 let winBefore = null;
 for (const k of Object.keys(WIN_LIM)) {
@@ -1767,6 +1948,7 @@ $('notesBody').innerHTML =
   `<li>Orbit: drag empty space. Zoom: scroll / pinch. Pan: right-drag / two fingers. View buttons jump to 3D, flat Top / Front / Side, or a seated eye view; orbiting out of a flat view brings perspective back.</li>` +
   `<li>Select by clicking an object or using Setup → Objects. Drag it with the Inspector's tool: Move, X, Z, Lift or Rotate (keys M X Z L R; [ ] rotate 15°, Shift for 1°). Or type exact values.</li>` +
   `<li>VIVO arm: the sliders set its joints and the monitor follows. Dragging the monitor moves the joints instead; if it can't get there it stops at its limit and says so.</li>` +
+  `<li>Lighting tab: mix the studio light, the ceiling light and real sunlight through the window (pick a time, month and latitude, or ▶ play the day).</li>` +
   `<li>Layouts ▾ saves named setups in this browser; click one to load it (most recent first). Export / Import moves them to other devices. Undo / Redo: ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Y).</li>` +
   `<li>Drop all lowers the rack, keyboard, laptop, MixPre and dock onto whatever is beneath. Objects can't be scaled.</li></ul>`;
 function setMenu(open) {
