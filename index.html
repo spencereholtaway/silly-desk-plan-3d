@@ -17,7 +17,7 @@
   #hud { position:fixed; top:max(8px,env(safe-area-inset-top)); left:8px; right:8px; display:flex; flex-direction:column;
          gap:6px; align-items:flex-start; pointer-events:none; }
   #hud > * { pointer-events:auto; }
-  #menuRow { display:flex; gap:6px; align-items:center; }
+  #menuRow { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
   #menuBtn { box-shadow:0 1px 4px rgba(0,0,0,.08); font-weight:600; }
   .pill { color:var(--warn); font-weight:600; border-color:#e6b3b3; background:#fff5f5; }
   #menu { width:min(380px, calc(100vw - 16px)); max-height:calc(100vh - 230px); overflow:auto; }
@@ -85,6 +85,7 @@
     <button id="menuBtn" aria-expanded="false" aria-controls="menu">☰ Menu</button>
     <button id="ovPill" class="pill" hidden></button>
     <button id="wallPill" class="pill" hidden>⚠ Arm hits the wall</button>
+    <button id="armPill" class="pill" hidden></button>
   </div>
   <div id="menu" class="panel" hidden>
     <div class="row top"><b id="title">Desk Plan 3D</b><button id="menuClose" aria-label="Close menu">✕</button></div>
@@ -168,7 +169,17 @@ const RACKS = { '2U': { u: 2, h: 6.5, verified: false }, '4U': { u: 4, h: 10, ve
 const DBX = { w: 19, h: 1.75, d: 8 };                 // depth assumed
 
 // ---- 3. VIVO STAND-V101GT -----------------------------------------------------
-const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, L1: 11, L2: 12, head: 3, centerMin: 10.5, centerMax: 23.5 };
+// How the arm is built (VIVO assembly instructions): pole screwed into the clamp base →
+// "arm support" collar slid onto the pole and locked with a 6 mm hex (sets height) → lower arm
+// sits on top of the collar and swivels around the pole → gas-spring arm sits on top of the
+// lower arm's end (elbow), swivels there and pivots up/down (parallelogram, 13" of travel) →
+// VESA head on the end: 180° swivel, −30°/+45° tilt, 180° rotation, quick-release plate.
+// Segment lengths aren't published: L2 is derived from the 13" travel at an assumed ±40° swing,
+// and L1 fills the rest of the 26" max extension after an assumed 3" head.
+const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, travel: 13, phiMax: 40, head: 3, headSwivel: 90,
+  lowT: 1.3, hubH: 0.5, tiltMin: -30, tiltMax: 45 };
+ARM.L2 = ARM.travel / (2 * Math.sin(ARM.phiMax * Math.PI / 180));
+ARM.L1 = ARM.maxExt - ARM.L2 - ARM.head;
 const CLAMP_W = 2.4, CLAMP_D = 2.4, POLE_GAP = 1.5, COLLAR_GAP = 1, COLLAR_H = 1.6, COLLAR_R = 1.15;
 
 // ---- 4. Monitors (no stand) ---------------------------------------------------
@@ -217,8 +228,9 @@ const NOTES = {
     `MITTBACK trestle shape, ${(TRESTLE.depth / CM).toFixed(0)} cm footprint and inset are simplified/assumed.`,
     `Rack 2U height 6.5″ (same 21 × 14″ footprint) is unverified. Rack internals (1.5″ top/bottom panels, 1″ sides, open back) are simplified.`,
     `dbx 286s depth 8″ is assumed; drawn in the top rack space, front flush with the rack front.`,
-    `VIVO STAND-V101GT: 13″ pole, 26″ max extension, 10.5–23.5″ screen-center range come from retailer listings (vivo-us.com was unreachable). Treat as unverified; the GT may be taller.`,
-    `Arm segment lengths (11″ + 12″ + 3″ tilt head), pole Ø 1.4″, collar 1.6″ tall, clamp 2.4 × 2.4″ are assumed. The pole is placed with the clamp's left edge 1.5″ from the rack's right side.`,
+    `VIVO STAND-V101GT: 13″ pole, 26″ max extension and 13″ of gas-spring height travel come from retailer listings (vivo-us.com and the manual PDFs were unreachable).`,
+    `Arm segment lengths aren't published. Modelled as: lower arm ${ARM.L1.toFixed(1)}″, gas-spring arm ${ARM.L2.toFixed(1)}″ swinging ±${ARM.phiMax}° (gives the 13″ travel), ${ARM.head}″ head; these add to the 26″ max extension. Pole Ø 1.4″, collar 1.6″ tall, clamp 2.4 × 2.4″ are assumed. The clamp's left edge is 1.5″ from the rack.`,
+    `The arm's head is assumed level with the VESA center, and the screen is assumed to face the way the gas-spring arm points within the head's ±90° swivel.`,
     `VESA mount assumed at the panel center. Monitor back plane placed at z = ${MON_VESA_Z}″ by default.`,
     `INNOCN 34C1U: width 32.16″ from a retailer listing; height 14.4″ and depth 2.0″ (no stand) are estimates.`,
     `Dell U3425WE curve drawn as 1900R; panel thickness and rear-housing shape are approximate. The overlap box uses the full 813.5 × 359.1 × 105.1 mm envelope.`,
@@ -240,6 +252,7 @@ const NOTES = {
     `MixPre: 110 × 114 × 36 mm (from brief).`,
     `Dell U2724D (current monitor): 612.2 × 352.5 × 50.1 mm without stand.`,
     `IKEA ALEX drawer unit on castors (wide): 67 W × 48 D × 66 H cm, 6 drawers.`,
+    `VIVO V101GT build (assembly instructions, via search): pole screws into the base; "arm support" collar slides on and locks with a 6 mm hex; lower arm sits on top and swivels; gas-spring arm sits on the lower arm's end; tension set with a 6 mm hex at the back; VESA head swivels 180°, tilts −30° to +45°, rotates 180°.`,
     `Apple, ASUS, INNOCN and VIVO sites were blocked from the build environment. Apple figures match Apple's published specs as quoted by third parties.`,
   ],
 };
@@ -577,28 +590,50 @@ function updateArm() {
   [...u.group.children].forEach(c => { u.group.remove(c); disposeTree(c); });
   u.meshes = []; u.colliders = []; u.named = {};
   const P = units.pole.state, Mo = units.monitor.state;
-  const S0 = new V3(P.x, P.y + COLLAR_H / 2, P.z);
+  const yLow = P.y + COLLAR_H + ARM.lowT / 2;              // lower arm centerline, on top of the collar
+  const yRoot = P.y + COLLAR_H + ARM.lowT + ARM.hubH;      // gas-spring pivot, on top of the lower arm's end
   const fwd = new V3(Math.sin(Mo.ry), 0, Math.cos(Mo.ry));
   const vesa = new V3(Mo.x, Mo.y, Mo.z);
-  const E = vesa.clone().addScaledVector(fwd, -ARM.head);
-  const dy = E.y - S0.y, vertOk = Math.abs(dy) <= ARM.L2;
-  const L1 = ARM.L1, L2h = Math.sqrt(Math.max(0, ARM.L2 * ARM.L2 - dy * dy));
+  const E = vesa.clone().addScaledVector(fwd, -ARM.head); // gas-spring arm end (head swivel axis)
+  // gas-spring pitch from the height difference, held to its ±phiMax swing
+  const rise = E.y - yRoot, phiRaw = Math.asin(Math.max(-1, Math.min(1, rise / ARM.L2))) / DEG;
+  const heightOk = Math.abs(rise) <= ARM.L2 * Math.sin(ARM.phiMax * DEG) + 1e-6;
+  const phi = Math.max(-ARM.phiMax, Math.min(ARM.phiMax, phiRaw));
+  const L1 = ARM.L1, L2h = ARM.L2 * Math.cos(phi * DEG);
+  // two-link solve in plan: pole axis → elbow → E
+  const S0 = new V3(P.x, yLow, P.z);
   const dx = E.x - S0.x, dz = E.z - S0.z, d = Math.hypot(dx, dz);
   const dir = d > 1e-6 ? new V3(dx / d, 0, dz / d) : new V3(1, 0, 0);
   let elbow, reachOk = true;
-  if (d >= L1 + L2h) { reachOk = d <= L1 + L2h + 1e-6; elbow = S0.clone().addScaledVector(dir, L1); }
+  const swivelOf = el => {   // angle the head must swivel between the gas arm's heading and the screen's facing
+    const h = new V3(E.x - el.x, 0, E.z - el.z); if (h.lengthSq() < 1e-9) return 0;
+    return Math.acos(Math.max(-1, Math.min(1, h.normalize().dot(fwd)))) / DEG;
+  };
+  if (d >= L1 + L2h - 1e-6) { reachOk = d <= L1 + L2h + 1e-6; elbow = S0.clone().addScaledVector(dir, L1); }
+  else if (d <= Math.abs(L1 - L2h)) { reachOk = false; elbow = S0.clone().addScaledVector(dir, L1); }
   else {
-    const k = (L1 * L1 - L2h * L2h + d * d) / (2 * Math.max(d, 1e-6));
-    const h = Math.sqrt(Math.max(0, L1 * L1 - k * k));
+    const k = (L1 * L1 - L2h * L2h + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - k * k));
     const perp = new V3(-dir.z, 0, dir.x), base = S0.clone().addScaledVector(dir, k);
     const e1 = base.clone().addScaledVector(perp, h), e2 = base.clone().addScaledVector(perp, -h);
-    elbow = e1.z < e2.z ? e1 : e2;     // fold the elbow toward the back (may hit the wall: warned)
+    // fold toward the back (may hit the wall: warned), unless the head can't swivel that far
+    const back = e1.z < e2.z ? e1 : e2, front = back === e1 ? e2 : e1;
+    elbow = swivelOf(back) <= ARM.headSwivel || swivelOf(front) > ARM.headSwivel ? back : front;
   }
-  bar(u, 'seg1', S0, elbow, 1.3, 0x45484e, 'Arm (lower)');
-  bar(u, 'seg2', elbow, E, 1.3, 0x45484e, 'Arm (pneumatic)');
-  bar(u, 'head', E, vesa.clone().addScaledVector(fwd, -0.25), 1.0, 0x5a5d63, 'Arm tilt head');
+  elbow.y = yLow;
+  const swivel = swivelOf(elbow), swivelOk = swivel <= ARM.headSwivel + 0.5;
+  const dark = 0x45484e;
+  bar(u, 'seg1', S0, elbow, ARM.lowT, dark, 'Arm (lower)');
+  addCyl(u, 'seg1', 0.75, ARM.lowT + ARM.hubH, 0x3a3d42, elbow.x, (yLow - ARM.lowT / 2 + yRoot) / 2, elbow.z);
+  const root = new V3(elbow.x, yRoot, elbow.z);
+  bar(u, 'seg2', root, E, 1.2, dark, 'Arm (gas spring)');
+  // second link of the parallelogram, just below
+  bar(u, 'seg2', root.clone().add(new V3(0, -0.9, 0)), E.clone().add(new V3(0, -0.9, 0)), 0.45, 0x5a5d63, 'Arm (gas spring)');
+  addCyl(u, 'head', 0.6, 2.2, 0x3a3d42, E.x, E.y - 0.4, E.z);
+  bar(u, 'head', E, vesa.clone().addScaledVector(fwd, -0.25), 1.0, 0x5a5d63, 'Arm head');
   const ext = Math.hypot(vesa.x - P.x, vesa.z - P.z);
-  armInfo = { ext, reachOk: reachOk && ext <= ARM.maxExt, vertOk };
+  armInfo = { ext, phi: phiRaw, swivel, heightOk, swivelOk, reachOk: reachOk && ext <= ARM.maxExt + 1e-6,
+    lo: yRoot - ARM.travel / 2, hi: yRoot + ARM.travel / 2 };
+  armInfo.ok = armInfo.reachOk && heightOk && swivelOk;
 }
 function bar(u, part, A, B, t, color, label) {
   const len = A.distanceTo(B); if (len < 1e-3) return;
@@ -734,7 +769,9 @@ function updateClearances() {
   dims.ipad.line.material = over > 0 ? dimMat.bad : dimMat.ok;
   dims.ipad.label.el.classList.toggle('bad', over > 0);
 
-  const ch = mo.state.y, chOk = ch >= ARM.centerMin && ch <= ARM.centerMax;
+  const ch = mo.state.y, A = armInfo;
+  const need = A.heightOk ? 0 : (ch > A.hi ? ch - A.hi : ch - A.lo);   // collar move that would fix the height
+  const collarFits = po.state.y + need >= 0.3 && po.state.y + need <= ARM.poleH - COLLAR_H;
   const row = (k, v, cls = '') => `<tr><td>${k}</td><td class="v ${cls}">${v}</td></tr>`;
   const sign = v => v < 0 ? 'neg' : 'pos';
   clrTable.innerHTML =
@@ -744,10 +781,15 @@ function updateClearances() {
     row('Monitor bottom → laptop top', lapOn ? fmt(monLap) : 'hidden', lapOn ? sign(monLap) : '') +
     row('Arm collar → rack top', fmt(collar), sign(collar)) +
     row(`iPad overhang past desk ${overLeft ? 'left' : 'right'} edge`, over > 0 ? fmt(over) : `none (${fmt(-over)} inside)`, over > 0 ? 'neg' : 'pos') +
-    row('Screen center above desk', `${fmt(ch)}${chOk ? '' : ' ⚠ outside 10.5–23.5″'}`, chOk ? '' : 'neg') +
+    row('Screen center above desk', fmt(ch), A.heightOk ? '' : 'neg') +
+    row('Arm height range at this collar', `${A.lo.toFixed(1)}–${A.hi.toFixed(1)}″${A.heightOk ? '' : ` ⚠ ${need > 0 ? 'raise' : 'lower'} collar ${Math.abs(need).toFixed(2)}″${collarFits ? '' : ' (past the pole\'s end)'}`}`, A.heightOk ? '' : 'neg') +
+    row('Gas-spring arm angle', `${A.heightOk ? A.phi.toFixed(1) + '°' : 'beyond'} (±${ARM.phiMax}°)`, A.heightOk ? '' : 'neg') +
+    row('Head swivel', `${A.swivel.toFixed(0)}° (max ${ARM.headSwivel}°)`, A.swivelOk ? '' : 'neg') +
     row('ALEX gap to desk right edge', fmt(ab.min.x - DESK_W), sign(ab.min.x - DESK_W)) +
     row('ALEX top below desktop', fmt(-ab.max.y)) +
-    row('Arm reach (pole → VESA)', `${armInfo.ext.toFixed(2)} / ${ARM.maxExt}″${armInfo.reachOk && armInfo.vertOk ? '' : ' ⚠ out of reach'}`, armInfo.reachOk && armInfo.vertOk ? '' : 'neg');
+    row('Arm reach (pole → VESA)', `${A.ext.toFixed(2)} / ${ARM.maxExt}″${A.reachOk ? '' : ' ⚠ out of reach'}`, A.reachOk ? '' : 'neg');
+  const armMsg = !A.reachOk ? '⚠ Arm can\'t reach' : !A.heightOk ? `⚠ Monitor ${need > 0 ? 'too high' : 'too low'} for arm` : !A.swivelOk ? '⚠ Head over-swivelled' : '';
+  $('armPill').hidden = !armMsg; $('armPill').textContent = armMsg;
   overlapsEl.textContent = overlaps.length ? '⚠ Overlap: ' + overlaps.join('; ') : 'No overlaps';
   overlapsEl.style.color = overlaps.length ? '' : 'var(--ok)';
   $('wallPill').hidden = !armHitsWall;
@@ -1053,6 +1095,7 @@ $('menuBtn').addEventListener('click', () => setMenu($('menu').hidden));
 $('menuClose').addEventListener('click', () => setMenu(false));
 $('ovPill').addEventListener('click', () => setMenu(true));
 $('wallPill').addEventListener('click', () => setMenu(true));
+$('armPill').addEventListener('click', () => setMenu(true));
 
 // ============================================================================
 // Render loop: project HTML labels each frame
