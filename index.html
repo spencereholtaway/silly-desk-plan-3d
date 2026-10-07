@@ -93,6 +93,8 @@
   #room .slide { flex-wrap:wrap; gap:4px 6px; margin:4px 0 10px; }
   #room .slide > span { width:100%; }
   #room .slide output { width:44px; }
+  #room .slide.c { flex-wrap:nowrap; margin:4px 0; }
+  #room .slide.c > span { width:62px; }
 
   /* ---- measurements ---- */
   #clrTable { border-collapse:collapse; width:100%; }
@@ -231,6 +233,10 @@
         <button data-k="mon" data-v="b"><span>INNOCN 34C1U 34″</span></button>
         <button data-k="mon" data-v="c"><span>Dell U3425WE 34″ curved</span></button>
       </div></div>
+    <div class="field"><label>Screen image</label>
+      <button id="scrPick" class="icon" title="Show a picture on the monitor, cropped to fill it">Choose…</button>
+      <button id="scrClear" class="icon">Clear</button>
+      <input id="scrFile" type="file" accept="image/*" hidden></div>
     <div class="field"><label>MacBook Air</label>
       <div class="seg"><button data-k="mac" data-v="13">13″</button><button data-k="mac" data-v="15">15″</button></div>
       <button id="lapBtn" class="icon" title="Show or hide the laptop">Hide</button></div>
@@ -245,6 +251,14 @@
     <div class="slide"><span>Drawers ↔ wall</span><button data-nudge="alexWall" data-d="-0.25" aria-label="Drawers closer to the wall">−</button>
       <input id="alexWall" type="range" min="0" max="24" step="0.25" aria-label="Drawers to wall">
       <button data-nudge="alexWall" data-d="0.25" aria-label="Drawers further from the wall">+</button><output id="alexWallOut"></output></div>
+    <div class="field"><label>Window</label><button id="winBtn" class="icon">On</button></div>
+    <div id="winCtl">
+      <div class="slide c"><span>Centre X</span><input id="winX" type="range" min="-20" max="80" step="0.5" aria-label="Window centre, from the desk's left edge"><output id="winXOut"></output></div>
+      <div class="slide c"><span>Width</span><input id="winW" type="range" min="12" max="72" step="0.5" aria-label="Window width"><output id="winWOut"></output></div>
+      <div class="slide c"><span>Sill</span><input id="winY" type="range" min="-12" max="36" step="0.5" aria-label="Window sill height above the desktop"><output id="winYOut"></output></div>
+      <div class="slide c"><span>Height</span><input id="winH" type="range" min="12" max="60" step="0.5" aria-label="Window height"><output id="winHOut"></output></div>
+      <div class="sub">Centre X from the desk's left edge · sill height from the desktop.</div>
+    </div>
   </section>
   <section>
     <h3>Objects</h3>
@@ -439,8 +453,10 @@ const NOTES = {
     `ergoiuon side-arm geometry and MagFlött plate (4.7 × 4.7 × 0.25″) are assumed; iPad front is set flush with the monitor's front, centered on the monitor's edge with a 1″ gap. With the iPad below, the auto height keeps the iPad's bottom 1″ above the rack-top items.`,
     `MacBook base/lid thickness split (60/40 of closed height) and lid length (= depth) are assumed. Laptop and MixPre fronts are flush with the rack front.`,
     `ALEX (fixed in place, except its wall gap): ${ALEX.gap}″ gap from the desk's right edge, ${ALEX.castor}″ castor height and equal drawer heights are assumed.`,
+    `Window: sill at desk height and 36″ tall (from you); 24″ wide and centred behind the desk are guesses (set them under Room). 4″ deep opening, 1″ sill and a centre mullion are assumed. The arm can reach into the opening up to the glass.`,
     `Back wall is 8 ft tall (assumed). Desk and ALEX gaps to the wall default to ${WALL_GAP}″; set them with the Wall gaps button. The arm clamp's spine sits in the desk gap.`,
     `Anker dock placement (on the desk left of the rack, 1″ from the back edge, ports facing you) is assumed.`,
+    `Screen image: Choose… stores your picture in this browser only; screen.jpg in the site folder is the default for everyone.`,
     `Seated eye height (${(EYE_Y + DESK_H).toFixed(1)}″ above floor, ${EYE_Y.toFixed(1)}″ above desk) is an anthropometric estimate for a 6′5″ person on a typical chair.`,
   ],
   sources: [
@@ -569,8 +585,29 @@ function disposeTree(o) {
 // Units (movable groups)
 // ============================================================================
 const IPAD_SIDES = ['left', 'right', 'above', 'below'];
-const S = { ipad: 'right', rack: '4U', mon: 'd', mac: 13, laptop: true, labels: false, wall: true, shadows: true, deskWall: WALL_GAP, alexWall: WALL_GAP, mode: 'move' };
+let screenTex = null;   // picture shown on the monitor's screen (cropped to fill it)
+// Material for a screen of the given aspect: the image crops to fill it like CSS object-fit: cover.
+// Unlit, so it reads as a glowing screen. 'flip' mirrors U for the inside of the curved panel.
+function screenMaterial(aspect, flip) {
+  const t = screenTex.clone(); t.needsUpdate = true;
+  const ia = screenTex.image.width / screenTex.image.height;
+  if (ia > aspect) { t.repeat.set(aspect / ia, 1); t.offset.set((1 - aspect / ia) / 2, 0); }
+  else { t.repeat.set(1, ia / aspect); t.offset.set(0, (1 - ia / aspect) / 2); }
+  if (flip) { t.wrapS = THREE.RepeatWrapping; t.offset.x += t.repeat.x; t.repeat.x = -t.repeat.x; }
+  return new THREE.MeshBasicMaterial({ map: t });
+}
+function useScreenImage(mesh, aspect, flip) {
+  if (!screenTex) return;
+  mesh.material.dispose(); mesh.material = screenMaterial(aspect, flip);
+  mesh.userData.base = new THREE.Color(0xffffff);
+  mesh.userData.noTint = true;   // keep the picture true; the red overlap box still shows a clash
+}
+const S = { ipad: 'right', rack: '4U', mon: 'd', mac: 13, laptop: true, labels: false, wall: true, shadows: true, deskWall: WALL_GAP, alexWall: WALL_GAP,
+  // window in the back wall: centre X, width, sill height above the desktop, height (inches)
+  winOn: true, winX: DESK_W / 2, winW: 24, winY: 0, winH: 36, mode: 'move' };
 const wallZ = () => -S.deskWall;
+const WIN_LIM = { winX: [-20, 80], winW: [12, 72], winY: [-12, 36], winH: [12, 60] };
+const winClamp = (k, v) => Math.min(WIN_LIM[k][1], Math.max(WIN_LIM[k][0], v));
 const units = {};
 function defUnit(id, name, build, opts = {}) {
   const u = Object.assign({ id, name, build, group: new THREE.Group(), meshes: [], colliders: [], named: {},
@@ -631,14 +668,48 @@ defUnit('rack', 'Gator Elite rack', u => {
 // ---- Monitor arm pole (pivot = pole axis at desk surface; state.y = collar bottom) ----
 defUnit('wall', 'Back wall', u => {
   const w = 160, cx = (DESK_W + ALEX.gap + ALEX.w) / 2, y0 = -DESK_H;
-  // single-sided plane facing the room, so it vanishes when you orbit behind it
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, WALL_H), new THREE.MeshLambertMaterial({ color: 0xe9e5de }));
-  m.position.set(cx, y0 + WALL_H / 2, 0);
-  m.userData = { base: new THREE.Color(0xe9e5de), unit: 'wall', part: 'wall:wall' };
+  const x0 = cx - w / 2, x1 = cx + w / 2, y1 = y0 + WALL_H, WALL_C = 0xe9e5de;
+  const cl = (v, a, b) => Math.min(b, Math.max(a, v));
+  // the window opening (sill height is measured from the desktop, like everything else)
+  const win = S.winOn ? { l: cl(S.winX - S.winW / 2, x0 + 2, x1 - 2), r: cl(S.winX + S.winW / 2, x0 + 2, x1 - 2),
+                          b: cl(S.winY, y0 + 4, y1 - 2), t: cl(S.winY + S.winH, y0 + 4, y1 - 2) } : null;
+  const hasWin = win && win.r - win.l > 1 && win.t - win.b > 1;
+  // single-sided wall facing the room, so it vanishes when you orbit behind it
+  const shape = new THREE.Shape();
+  shape.moveTo(x0, y0); shape.lineTo(x1, y0); shape.lineTo(x1, y1); shape.lineTo(x0, y1); shape.lineTo(x0, y0);
+  if (hasWin) {
+    const hole = new THREE.Path();
+    hole.moveTo(win.l, win.b); hole.lineTo(win.l, win.t); hole.lineTo(win.r, win.t); hole.lineTo(win.r, win.b); hole.lineTo(win.l, win.b);
+    shape.holes.push(hole);
+  }
+  const m = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshLambertMaterial({ color: WALL_C }));
+  m.userData = { base: new THREE.Color(WALL_C), unit: 'wall', part: 'wall:wall' };
   m.receiveShadow = true;
   u.group.add(m); u.meshes.push(m);
-  addBox(u, 'wall', w, 3.5, 0.5, 0xf7f7f5, cx, y0 + 1.75, 0.25, null, { collider: false });
-  addCollider(u, 'wall', w, WALL_H, 0.5, cx, y0 + WALL_H / 2, -0.25, null, 'Back wall');
+  addBox(u, 'wall', w, 3.5, 0.5, 0xf7f7f5, cx, y0 + 1.75, 0.25, null, { collider: false });   // baseboard
+  if (!hasWin) { addCollider(u, 'wall', w, WALL_H, 0.5, cx, y0 + WALL_H / 2, -0.25, null, 'Back wall'); return; }
+  // wall colliders around the opening; inside it, things can reach back as far as the glass
+  const box2 = (l, r, b, t) => { if (r - l > 0.01 && t - b > 0.01) addCollider(u, 'wall', r - l, t - b, 0.5, (l + r) / 2, (b + t) / 2, -0.25, null, 'Back wall'); };
+  box2(x0, win.l, y0, y1); box2(win.r, x1, y0, y1); box2(win.l, win.r, y0, win.b); box2(win.l, win.r, win.t, y1);
+  const REC = 4, ww = win.r - win.l, wh = win.t - win.b, wx = (win.l + win.r) / 2, wy = (win.b + win.t) / 2;
+  addCollider(u, 'wall', ww, wh, 0.5, wx, wy, -REC - 0.25, null, 'Window glass');
+  // reveal (the opening's depth), glass and a bit of sky
+  const reveal = 0xdcd8d0;
+  addBox(u, 'wall', 0.3, wh, REC, reveal, win.l - 0.15, wy, -REC / 2, null, { collider: false });
+  addBox(u, 'wall', 0.3, wh, REC, reveal, win.r + 0.15, wy, -REC / 2, null, { collider: false });
+  addBox(u, 'wall', ww + 0.6, 0.3, REC, reveal, wx, win.t + 0.15, -REC / 2, null, { collider: false });
+  addBox(u, 'wall', ww + 0.6, 0.3, REC, reveal, wx, win.b - 0.15, -REC / 2, null, { collider: false });
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(ww, wh), new THREE.MeshLambertMaterial({ color: 0xbfd8ee, transparent: true, opacity: 0.35, depthWrite: false }));
+  glass.position.set(wx, wy, -REC); u.group.add(glass);
+  const sky = new THREE.Mesh(new THREE.PlaneGeometry(ww + 8, wh + 8), new THREE.MeshBasicMaterial({ color: 0xdcebfb }));
+  sky.position.set(wx, wy, -REC - 3); u.group.add(sky);
+  addBox(u, 'wall', 0.8, wh, 0.8, 0xf4f4f2, wx, wy, -REC + 0.4, null, { collider: false });           // centre mullion
+  // white trim around the opening and a 1" sill at the bottom
+  const T = 1.75, F = 0.5, trim = 0xf6f6f4;
+  addBox(u, 'wall', T, wh + 2 * T, F, trim, win.l - T / 2, wy, F / 2, null, { collider: false });
+  addBox(u, 'wall', T, wh + 2 * T, F, trim, win.r + T / 2, wy, F / 2, null, { collider: false });
+  addBox(u, 'wall', ww, T, F, trim, wx, win.t + T / 2, F / 2, null, { collider: false });
+  addBox(u, 'wall', ww + 2 * T + 1, 0.75, REC + 1, trim, wx, win.b - 0.375, -REC / 2 + 0.5, null, { label: 'Window sill' });
 }, { selectable: false });
 
 defUnit('pole', 'VIVO V101GT pole', u => {
@@ -780,7 +851,8 @@ defUnit('monitor', 'Monitor', u => {
   if (M.curve) curvedMonitor(u, M);
   else {
     addBox(u, 'mon', M.w, M.h, M.d, 0x2c2e33, 0, 0, M.d / 2, null, { collider: false });
-    addBox(u, 'mon', M.w - 0.5, M.h - 0.5, 0.02, 0x3b5266, 0, 0, M.d + 0.011, null, { collider: false });
+    const scr = addBox(u, 'mon', M.w - 0.5, M.h - 0.5, 0.02, 0x3b5266, 0, 0, M.d + 0.011, null, { collider: false });
+    useScreenImage(scr, (M.w - 0.5) / (M.h - 0.5));
   }
   addCollider(u, 'mon', M.w, M.h, M.d, 0, 0, M.d / 2, null, M.name);
   addBox(u, 'vesa', 4.5, 4.5, 0.25, 0x777777, 0, 0, -0.125, null, { collider: false });
@@ -822,6 +894,12 @@ function curvedMonitor(u, M) {
   const g = new THREE.ExtrudeGeometry(shape, { depth: H, bevelEnabled: false, curveSegments: 1 });
   g.rotateX(-Math.PI / 2); g.translate(0, -H / 2, 0);
   addMesh(u, 'mon', g, 0x2f3d4c, null, null);
+  // the viewable screen: a slice of a cylinder hugging the panel's concave front
+  const sw = W - 0.5, sh = H - 0.5, a = Math.asin(sw / 2 / R);
+  const scr = addMesh(u, 'mon', new THREE.CylinderGeometry(R - 0.02, R - 0.02, sh, 48, 1, true, Math.PI - a, 2 * a), 0x34495c, null, [0, 0, zc + R]);
+  scr.material.side = THREE.BackSide;
+  useScreenImage(scr, sw / sh, true);
+  scr.material.side = THREE.BackSide;
   addBox(u, 'mon', 18, 10, zc - t + 0.1, 0x2c2e33, 0, 0, (zc - t + 0.1) / 2, null, { collider: false });
 }
 
@@ -935,13 +1013,16 @@ if (saved && saved.S) {
   if (typeof o.wall === 'boolean') S.wall = o.wall;
   if (typeof o.shadows === 'boolean') S.shadows = o.shadows;
   for (const k of ['deskWall', 'alexWall']) if (Number.isFinite(o[k])) S[k] = Math.min(GAP_MAX, Math.max(0, o[k]));
+  for (const k of Object.keys(WIN_LIM)) if (Number.isFinite(o[k])) S[k] = winClamp(k, o[k]);
+  if (typeof o.winOn === 'boolean') S.winOn = o.winOn;
   if (['move', 'x', 'z', 'lift', 'rotate'].includes(o.mode)) S.mode = o.mode;
 }
 let currentLayout = saved && typeof saved.currentLayout === 'string' ? saved.currentLayout : null;
 let saveTimer = 0;
 function saveNow() {
   clearTimeout(saveTimer); saveTimer = 0;
-  const data = { v: 2, S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, wall: S.wall, shadows: S.shadows, deskWall: S.deskWall, alexWall: S.alexWall, mode: S.mode }, units: {},
+  const data = { v: 2, S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, wall: S.wall, shadows: S.shadows, deskWall: S.deskWall, alexWall: S.alexWall, mode: S.mode,
+    winOn: S.winOn, winX: S.winX, winW: S.winW, winY: S.winY, winH: S.winH }, units: {},
     cam: { p: camera.position.toArray(), t: controls.target.toArray() }, currentLayout };
   for (const id of ORDER) { const u = units[id]; data.units[id] = { state: u.state, moved: u.moved }; }
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable: just don't persist */ }
@@ -1019,6 +1100,7 @@ const hitUnits = new Set();
 // plain object names for the overlap list
 function objName(X) {
   const part = X.c.userData.part;
+  if (X.u === 'wall' && /^Window/.test(X.c.userData.label)) return 'Window';
   if (X.u === 'monitor') return part === 'monitor:mon' || part === 'monitor:vesa' ? 'Monitor' : 'iPad';
   return { rack: 'Rack', pole: 'Arm', arm: 'Arm', laptop: 'MacBook', mixpre: 'MixPre', keyboard: 'Keyboard',
            dock: 'Dock', desk: 'Desk', wall: 'Wall', alex: 'Drawers' }[X.u] || X.c.userData.label;
@@ -1046,7 +1128,7 @@ function checkCollisions() {
     }
   }
   for (const u of Object.values(units)) for (const m of u.meshes) {
-    m.material.color.copy(hitParts.has(m.userData.part) ? m.userData.base.clone().lerp(RED, 0.55) : m.userData.base);
+    m.material.color.copy(hitParts.has(m.userData.part) && !m.userData.noTint ? m.userData.base.clone().lerp(RED, 0.55) : m.userData.base);
   }
 }
 
@@ -1190,7 +1272,8 @@ function update() {
 // ============================================================================
 const undoStack = [], redoStack = [], UNDO_MAX = 100;
 function snapshot() {
-  const o = { S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, deskWall: S.deskWall, alexWall: S.alexWall }, units: {} };
+  const o = { S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, deskWall: S.deskWall, alexWall: S.alexWall,
+    winOn: S.winOn, winX: S.winX, winW: S.winW, winY: S.winY, winH: S.winH }, units: {} };
   for (const id of ORDER) { const u = units[id]; o.units[id] = { state: { ...u.state }, moved: u.moved }; }
   return JSON.stringify(o);
 }
@@ -1209,9 +1292,13 @@ function restore(json) {
   if (IPAD_SIDES.includes(src.ipad)) next.ipad = src.ipad;
   if (typeof src.laptop === 'boolean') next.laptop = src.laptop;
   for (const k of ['deskWall', 'alexWall']) if (Number.isFinite(src[k])) next[k] = Math.min(GAP_MAX, Math.max(0, src[k]));
+  for (const k of Object.keys(WIN_LIM)) if (Number.isFinite(src[k])) next[k] = winClamp(k, src[k]);
+  if (typeof src.winOn === 'boolean') next.winOn = src.winOn;
   const changed = k => k in next && S[k] !== next[k];
   const rk = changed('rack'), mn = changed('mon') || changed('ipad'), mc = changed('mac');
+  const wn = ['winOn', ...Object.keys(WIN_LIM)].some(changed);
   Object.assign(S, next);
+  if (wn) rebuild(units.wall);
   if (rk) rebuild(units.rack);
   if (mn) rebuild(units.monitor);
   if (mc) rebuild(units.laptop);
@@ -1569,7 +1656,52 @@ function syncRoom() {
     if (document.activeElement !== $(k)) $(k).value = S[k];
     $(k + 'Out').textContent = `${S[k].toFixed(2)}″`;
   }
+  for (const k of Object.keys(WIN_LIM)) {
+    if (document.activeElement !== $(k)) $(k).value = S[k];
+    $(k + 'Out').textContent = `${S[k].toFixed(1)}″`;
+  }
+  $('winBtn').textContent = S.winOn ? 'On' : 'Off';
+  $('winBtn').classList.toggle('on', S.winOn);
+  $('winCtl').hidden = !S.winOn;
 }
+// ---- screen image: your pick (kept in this browser) or screen.jpg from the site ----
+const SCREEN_KEY = 'deskplan3d.screen';
+function setScreenImage(src) {
+  if (!src) { screenTex = null; rebuild(units.monitor); update(); return; }
+  new THREE.TextureLoader().load(src, t => { screenTex = t; rebuild(units.monitor); update(); }, undefined, () => {});
+}
+$('scrPick').addEventListener('click', () => $('scrFile').click());
+$('scrFile').addEventListener('change', () => {
+  const f = $('scrFile').files[0]; $('scrFile').value = '';
+  if (!f) return;
+  const img = new Image();
+  img.onload = () => {   // keep it small enough to store: max 1600 px wide, JPEG
+    const k = Math.min(1, 1600 / img.width), c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const url = c.toDataURL('image/jpeg', 0.85);
+    URL.revokeObjectURL(img.src);
+    try { localStorage.setItem(SCREEN_KEY, url); } catch (e) { /* too big for storage: shown until reload */ }
+    setScreenImage(url);
+  };
+  img.src = URL.createObjectURL(f);
+});
+$('scrClear').addEventListener('click', () => {
+  try { localStorage.removeItem(SCREEN_KEY); } catch (e) { /* ignore */ }
+  setScreenImage(null);
+});
+(() => {
+  let stored = null; try { stored = localStorage.getItem(SCREEN_KEY); } catch (e) { /* ignore */ }
+  setScreenImage(stored || 'screen.jpg');   // screen.jpg is optional; a missing file just leaves the screen blank
+})();
+// ---- window sliders ----
+let winBefore = null;
+for (const k of Object.keys(WIN_LIM)) {
+  const el = $(k);
+  el.addEventListener('input', () => { if (!winBefore) winBefore = snapshot(); S[k] = winClamp(k, +el.value); rebuild(units.wall); update(); });
+  el.addEventListener('change', () => { if (winBefore) { commit(winBefore); winBefore = null; } });
+}
+$('winBtn').addEventListener('click', undoable(() => { S.winOn = !S.winOn; rebuild(units.wall); update(); }));
 $('undoBtn').addEventListener('click', undo);
 $('redoBtn').addEventListener('click', redo);
 syncUndo();
