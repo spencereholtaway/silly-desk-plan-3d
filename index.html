@@ -152,6 +152,12 @@
       <button data-rot="1">+1°</button><button data-rot="15">+15°</button>
       <button id="selReset">Reset this</button>
     </div>
+    <div class="row" id="poleRow" hidden>
+      <span class="sub">Collar</span><button data-collar="min">⤓ Lowest</button><button data-collar="max">⤒ Highest</button>
+    </div>
+    <div class="row" id="armRow" hidden>
+      <span class="sub">Height on the arm</span><button data-armh="lo">⤓ Lowest</button><button data-armh="hi">⤒ Highest</button>
+    </div>
     <div class="row" id="monRow" hidden>
       <label>Tilt <input id="inTilt" type="number" step="1" min="-30" max="45"></label>
       <button data-tilt="-5">−5°</button><button data-tilt="5">+5°</button>
@@ -213,15 +219,17 @@ const DBX = { w: 19, h: 1.75, d: 8 };                 // depth assumed
 // The listing gives the screen-center range: 8.75" (collar low, arm down) to 27.5" (collar at the
 // pole top, arm up) and a 26" max extension measured with the gas arm level. The listing photos
 // show the gas arm swinging from about 27° down to about 51° up. Segment lengths aren't
-// published: L2 comes from the 13" travel over that swing, L1 fills the 26" extension after an
-// assumed 3" head, and the riser and the collar's lowest point are solved so the model hits
+// published: L2 comes from the 13" travel over that swing; the lower arm is taken as the same
+// length (the 8.75" photo shows the arm folding back flat, monitor right in front of the pole),
+// the head is what's left of the 26" extension, and the riser and the collar's lowest point are solved so the model hits
 // 8.75" and 27.5" exactly.
 const COLLAR_H = 2.4;   // arm-support height, estimated from the listing photo
-const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, travel: 13, phiMin: -27, phiMax: 51, head: 3, headSwivel: 90,
+const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, travel: 13, phiMin: -27, phiMax: 51, headSwivel: 90,
   lowT: 1.5, centerMin: 8.75, centerMax: 27.5, tiltMin: -30, tiltMax: 45 };
 ARM.sinLo = Math.sin(ARM.phiMin * Math.PI / 180); ARM.sinHi = Math.sin(ARM.phiMax * Math.PI / 180);
 ARM.L2 = ARM.travel / (ARM.sinHi - ARM.sinLo);
-ARM.L1 = ARM.maxExt - ARM.L2 - ARM.head;
+ARM.L1 = ARM.L2;                              // equal links, so the arm can fold flat
+ARM.head = ARM.maxExt - ARM.L1 - ARM.L2;      // gas-arm end pivot → VESA plate face
 ARM.collarMax = ARM.poleH - COLLAR_H;                                     // collar top flush with the pole top
 ARM.riser = ARM.centerMax - ARM.L2 * ARM.sinHi - ARM.poleH - ARM.lowT;   // elbow post height
 ARM.collarMin = ARM.centerMin - ARM.L2 * ARM.sinLo - COLLAR_H - ARM.lowT - ARM.riser;
@@ -274,7 +282,7 @@ const NOTES = {
     `Rack 2U height 6.5″ (same 21 × 14″ footprint) is unverified. Rack internals (1.5″ top/bottom panels, 1″ sides, open back) are simplified.`,
     `dbx 286s depth 8″ is assumed; drawn in the top rack space, front flush with the rack front.`,
     `VIVO STAND-V101GT: 13″ pole, 26″ max extension and 13″ of gas-spring travel are from retailer listings; the 8.75″–27.5″ screen-center range is from the Amazon listing images.`,
-    `Arm segment lengths aren't published. Modelled as: lower arm ${ARM.L1.toFixed(1)}″, gas-spring arm ${ARM.L2.toFixed(1)}″ swinging ${ARM.phiMin}° to +${ARM.phiMax}° (read off the listing photos), ${ARM.head}″ head (adds to 26″). The elbow riser (${ARM.riser.toFixed(1)}″) and the collar's lowest setting (${ARM.collarMin.toFixed(2)}″) are solved so the full range is exactly 8.75–27.5″. Collar ${COLLAR_H}″ tall (from the photo), pole Ø 1.4″ and clamp 2.4 × 2.4″ are estimates. The clamp's left edge is 1.5″ from the rack.`,
+    `Arm segment lengths aren't published. Modelled as: gas-spring arm ${ARM.L2.toFixed(1)}″ swinging ${ARM.phiMin}° to +${ARM.phiMax}° (read off the listing photos), lower arm the same length so it folds flat like the 8.75″ photo, and a ${ARM.head.toFixed(1)}″ head making up the 26″ reach. The elbow riser (${ARM.riser.toFixed(1)}″) and the collar's lowest setting (${ARM.collarMin.toFixed(2)}″) are solved so the full range is exactly 8.75–27.5″. Collar ${COLLAR_H}″ tall (from the photo), pole Ø 1.4″ and clamp 2.4 × 2.4″ are estimates. The clamp's left edge is 1.5″ from the rack.`,
     `The collar can't go above ${ARM.collarMax.toFixed(1)}″ (its top meets the pole top), so "1″ above the 4U rack" (11″) isn't possible; it stops at ${ARM.collarMax.toFixed(1)}″.`,
     `Monitor tilt pivots at the VESA point (the real tilt joint is slightly behind it). Portrait turns the iPad and its side arm with the monitor, as they share the VESA plate.`,
     `The arm's head is assumed level with the VESA center, and the screen is assumed to face the way the gas-spring arm points within the head's ±90° swivel.`,
@@ -1073,7 +1081,8 @@ function syncSelPanel() {
   const set = (el, v) => { if (document.activeElement !== el) el.value = v; };
   set(inX, s.x.toFixed(2)); set(inY, s.y.toFixed(2)); set(inZ, s.z.toFixed(2));
   set(inR, (Math.round(s.ry / DEG * 10) / 10).toString());
-  $('monRow').hidden = selected !== 'monitor';
+  $('monRow').hidden = $('armRow').hidden = selected !== 'monitor';
+  $('poleRow').hidden = selected !== 'pole';
   if (selected === 'monitor') { set($('inTilt'), (s.tilt || 0).toString()); $('portraitBtn').classList.toggle('on', !!s.roll); }
   $('selCm').textContent = `Pivot ${(s.x * 2.54).toFixed(1)}, ${(s.y * 2.54).toFixed(1)}, ${(s.z * 2.54).toFixed(1)} cm` +
     (selected === 'monitor' ? ' · pivot = VESA point' : selected === 'pole' ? ' · Y = collar bottom' : ' · pivot = bottom center');
@@ -1127,6 +1136,13 @@ const dropAll = undoable(() => {
 });
 $('dropAllBtn').addEventListener('click', dropAll);
 
+document.querySelectorAll('[data-collar]').forEach(b => b.addEventListener('click', undoable(() => {
+  const u = units.pole; u.state.y = b.dataset.collar === 'min' ? ARM.collarMin : ARM.collarMax; u.moved = true; apply(u); update();
+})));
+// put the monitor at the lowest / highest point the arm reaches from its current collar
+document.querySelectorAll('[data-armh]').forEach(b => b.addEventListener('click', undoable(() => {
+  const u = units.monitor; u.state.y = b.dataset.armh === 'lo' ? armInfo.lo : armInfo.hi; u.autoY = false; apply(u); update();
+})));
 const setTilt = undoable(t => {
   const u = units.monitor; u.state.tilt = t; u.moved = true; apply(u); update();
   $('inTilt').value = u.state.tilt;   // show the clamped value even while the box has focus
