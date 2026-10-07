@@ -66,6 +66,13 @@
   .tag { font-size:10.5px; color:var(--muted); background:var(--line2); border-radius:4px; padding:0 5px; }
   .list > button.on .tag { background:#d7e4fd; color:var(--accent); }
   .dot { width:7px; height:7px; border-radius:50%; background:transparent; flex:none; }
+  .list > button .del { margin-left:auto; opacity:0; font-size:12px; padding:0 4px; border-radius:4px; }
+  .list > button:hover .del { opacity:.6; } .list > button .del:hover { opacity:1; background:var(--card); }
+  .lampAdd { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:6px; }
+  .lampAdd .grp-t { grid-column:1 / -1; color:var(--muted); font-size:11px; margin-top:4px; }
+  #lampCtl .slide { display:flex; align-items:center; gap:6px; margin:6px 0; }
+  #lampCtl .slide > span { width:70px; flex:none; color:var(--muted); }
+  #lampCtl .slide output { width:44px; }
   .hit .dot { background:var(--warn); }
 
   /* ---- tabs (right sidebar) ---- */
@@ -317,6 +324,10 @@
         </div>
         <div class="sub" id="selCm" style="margin-top:6px"></div>
       </section>
+      <section id="lampPanel" hidden>
+        <h3>Lamp</h3>
+        <div id="lampCtl"></div>
+      </section>
       <section id="armPanel" hidden>
         <h3>VIVO arm</h3>
         <div class="slide"><span>Collar</span><input id="jy" type="range" step="0.05" aria-label="Collar height"><output id="jyOut"></output></div>
@@ -363,6 +374,18 @@
         <div class="slide c"><span>Left / right</span><input id="ceilX" type="range" min="-40" max="100" step="1" aria-label="Left/right position, from the desk's left edge"><output id="ceilXOut"></output></div>
         <div class="slide c"><span>Ceiling</span><input id="ceilH" type="range" min="84" max="120" step="1" aria-label="Ceiling height above the floor"><output id="ceilHOut"></output></div>
         <div class="sub">Behind = from the desk's front edge toward your back. Ceiling = from the floor.</div>
+      </div>
+    </section>
+    <section>
+      <h3>Lamps</h3>
+      <div class="sub">Add one and it appears under Objects, where you can select it to move, edit or delete it.</div>
+      <div class="lampAdd">
+        <span class="grp-t">Floor</span>
+        <button data-addlamp="arc">Arc</button><button data-addlamp="tripod">Tripod</button>
+        <button data-addlamp="column">Column</button><button data-addlamp="torchiere">Torchiere</button>
+        <span class="grp-t">Desk</span>
+        <button data-addlamp="architect">Architect (angle)</button><button data-addlamp="bankers">Banker's</button>
+        <button data-addlamp="table">Table lamp</button>
       </div>
     </section>
     <section>
@@ -499,6 +522,7 @@ const NOTES = {
     `Screen image: Choose… stores your picture in this browser only; screen.jpg in the site folder is the default for everyone.`,
     `Ceiling light: 5 ft behind the desk's front edge on an 8 ft ceiling, centred on the desk (from you); drawn as a 14″ drum fixture with an assumed brightness. Adjust it under Lighting.`,
     `Sunlight: sun position from a simple declination/hour-angle model at local solar time (not clock time, so it can be ~±1 h off your watch), on the 21st of the month. The window is assumed to face WNW (292.5°) as you described; latitude defaults to 45°N, so set yours.`,
+    `Lamps: generic sizes for common types (arc ~80″ tall with ~45″ reach, tripod ~62″, column ~64″, torchiere ~70″, architect lamp 15″ + 15″ arms, banker's ~15″, table lamp ~22″) and an assumed brightness. Each casts shadows through its shade's openings.`,
     `Seated eye height (${(EYE_Y + DESK_H).toFixed(1)}″ above floor, ${EYE_Y.toFixed(1)}″ above desk) is an anthropometric estimate for a 6′5″ person on a typical chair.`,
   ],
   sources: [
@@ -619,6 +643,7 @@ function applyLighting() {
   hemi.color.set(S.sunOn && !S.studio ? 0x9db4ff : 0xffffff);
   if (S.sunOn && !S.studio) hemi.color.lerp(new THREE.Color(0xffffff), daylight);
   for (const l of [key, sun, ceil]) l.castShadow = S.shadows;
+  for (const id of lampIds) for (const l of units[id].lights || []) l.castShadow = S.shadows;
   if (units.wall && units.wall.sky) {
     if (!S.sunOn) units.wall.sky.material.color.copy(SKY.day);
     else {
@@ -697,6 +722,7 @@ function addCyl(u, part, r, h, color, x, y, z, parent, axis) {
 }
 function disposeTree(o) {
   o.traverse(n => {
+    if (n.isLight && n.shadow && n.shadow.map) n.shadow.map.dispose();
     if (n.geometry) n.geometry.dispose();
     if (n.material && n.material !== EDGE_MAT && n.material !== COLL_MAT) n.material.dispose();
   });
@@ -1084,6 +1110,191 @@ defUnit('alex', 'IKEA ALEX drawers', u => {
   addCollider(u, 'alex', A.w, A.h, A.d, 0, A.h / 2, 0, null, 'ALEX drawers');
 }, { selectable: false });   // fixed in place
 
+// ============================================================================
+// Lamps: desk and floor lamps added from the Lighting panel. Each is a unit like the rest
+// (selectable, movable, collides), with its own light: point lights inside open shades (so the
+// shade shapes the light and shadows) and a spotlight for the architect lamp's head.
+// Local axes: y up from the lamp's base, +x is the way an arc / architect lamp reaches.
+// ============================================================================
+const LAMP_TEMP = { warm: 0xffd2a0, neutral: 0xfff1e0, cool: 0xeef4ff };
+const SHADE_COL = { white: 0xf3efe6, cream: 0xe7dbc2, black: 0x2b2b2e, brass: 0xb08d57, green: 0x1f6b45 };
+const SHADE_NAME = { white: 'White', cream: 'Cream', black: 'Black', brass: 'Brass', green: 'Green glass' };
+const SHADE_LABEL = { drum: 'Drum', empire: 'Empire', dome: 'Dome', bowl: 'Bowl', cone: 'Cone', bankers: 'Banker' };
+const LAMP_TYPES = {
+  arc:       { name: 'Arc floor lamp', kind: 'floor', shades: ['dome'], colors: ['black', 'brass', 'white'],
+               def: { h: 80, reach: 45, shade: 'dome', col: 'black' }, sliders: [['h', 'Height', 70, 90, 1, '″'], ['reach', 'Reach', 30, 60, 1, '″']] },
+  tripod:    { name: 'Tripod floor lamp', kind: 'floor', shades: ['drum', 'empire'], colors: ['white', 'cream', 'black'],
+               def: { h: 62, shade: 'drum', col: 'white' }, sliders: [['h', 'Height', 50, 70, 1, '″']] },
+  column:    { name: 'Column floor lamp', kind: 'floor', shades: ['drum', 'empire'], colors: ['white', 'cream', 'black'],
+               def: { h: 64, shade: 'drum', col: 'cream' }, sliders: [['h', 'Height', 54, 72, 1, '″']] },
+  torchiere: { name: 'Torchiere', kind: 'floor', shades: ['bowl'], colors: ['white', 'brass', 'black'],
+               def: { h: 70, shade: 'bowl', col: 'white' }, sliders: [['h', 'Height', 60, 76, 1, '″']] },
+  architect: { name: 'Architect lamp', kind: 'desk', shades: ['cone', 'dome'], colors: ['black', 'white', 'brass'],
+               def: { a1: 20, a2: 95, tilt: 25, shade: 'cone', col: 'black' },
+               sliders: [['a1', 'Lower arm', -30, 80, 1, '°'], ['a2', 'Upper arm', 0, 170, 1, '°'], ['tilt', 'Head', -60, 90, 1, '°']] },
+  bankers:   { name: "Banker's lamp", kind: 'desk', shades: ['bankers'], colors: ['green', 'brass', 'black'],
+               def: { h: 15, shade: 'bankers', col: 'green' }, sliders: [['h', 'Height', 13, 19, 0.5, '″']] },
+  table:     { name: 'Table lamp', kind: 'desk', shades: ['drum', 'empire', 'dome'], colors: ['white', 'cream', 'black'],
+               def: { h: 22, shade: 'drum', col: 'white' }, sliders: [['h', 'Height', 16, 28, 0.5, '″']] },
+};
+const LAMP_COMMON = { on: true, b: 0.8, temp: 'warm' };
+const lampIds = [];
+let lampSeq = 0;
+const Y_AXIS = new V3(0, 1, 0), Z_AXIS = new V3(0, 0, 1);
+
+function lampBuild(u) {
+  const T = LAMP_TYPES[u.lampType], st = u.state, metal = 0x2e2f33, lit = st.on;
+  const glow = new THREE.Color(LAMP_TEMP[st.temp] || LAMP_TEMP.warm);
+  u.lights = [];
+  const label = u.name;
+  // a bar between two local points (mesh + collider), oriented without lookAt so it works inside a moved group
+  const rod = (A, B, t, color, collider = true) => {
+    const len = A.distanceTo(B); if (len < 1e-3) return;
+    const dir = B.clone().sub(A).normalize(), mid = A.clone().add(B).multiplyScalar(0.5);
+    const m = addMesh(u, 'lamp', new THREE.CylinderGeometry(t / 2, t / 2, len, 12), color, null, [mid.x, mid.y, mid.z]);
+    m.quaternion.setFromUnitVectors(Y_AXIS, dir);
+    if (collider) { const c = addCollider(u, 'lamp', t, len, t, mid.x, mid.y, mid.z, null, label); c.quaternion.copy(m.quaternion); }
+  };
+  const disc = (r, h, y, color) => { addMesh(u, 'lamp', new THREE.CylinderGeometry(r, r, h, 32), color, null, [0, y + h / 2, 0]); addCollider(u, 'lamp', r * 2, h, r * 2, 0, y + h / 2, 0, null, label); };
+  // shades are open shells so light leaves through the top/bottom and the walls cast shadows
+  const shadeMesh = (geom, pos, quat) => {
+    const m = addMesh(u, 'lamp', geom, SHADE_COL[st.col], null, [pos.x, pos.y, pos.z]);
+    if (quat) m.quaternion.copy(quat);
+    m.material.side = THREE.DoubleSide; m.material.shadowSide = THREE.DoubleSide;
+    if (lit && st.col !== 'black' && st.col !== 'brass') { m.material.emissive = glow.clone().multiplyScalar(st.col === 'green' ? 0.25 : 0.45); m.userData.noTint = false; }
+    geom.computeBoundingBox();
+    const bb = geom.boundingBox, sz = bb.getSize(new V3()), ctr = bb.getCenter(new V3());
+    const c = addCollider(u, 'lamp', sz.x, sz.y, sz.z, pos.x + ctr.x, pos.y + ctr.y, pos.z + ctr.z, null, label);
+    if (quat) { c.quaternion.copy(quat); c.position.copy(pos).add(ctr.clone().applyQuaternion(quat)); }
+    return m;
+  };
+  const shadeGeom = (style, y /* centre */) => {
+    if (style === 'drum') return [new THREE.CylinderGeometry(7.5, 7.5, 10, 40, 1, true), y];
+    if (style === 'empire') return [new THREE.CylinderGeometry(4.8, 8.2, 10, 40, 1, true), y];
+    if (style === 'dome') return [new THREE.SphereGeometry(7, 40, 14, 0, Math.PI * 2, 0, Math.PI / 2), y - 3.5];
+    return [new THREE.CylinderGeometry(7.5, 7.5, 10, 40, 1, true), y];
+  };
+  const bulb = pos => {
+    const m = addMesh(u, 'lamp', new THREE.SphereGeometry(0.9, 16, 12), 0xffffff, null, [pos.x, pos.y, pos.z]);
+    m.material.dispose(); m.material = new THREE.MeshBasicMaterial({ color: lit ? glow : 0x8a8a8a });
+    m.userData.noTint = true; m.castShadow = false;
+  };
+  const point = pos => {
+    const l = new THREE.PointLight(LAMP_TEMP[st.temp], 0.85 * st.b, 0, 1);
+    l.position.copy(pos); l.visible = lit;
+    l.shadow.mapSize.set(512, 512); l.shadow.camera.near = 0.6; l.shadow.bias = -0.003; l.shadow.normalBias = 0.05;
+    u.group.add(l); u.lights.push(l);
+  };
+  const spot = (pos, dir) => {
+    const l = new THREE.SpotLight(LAMP_TEMP[st.temp], 1.4 * st.b, 0, 0.62, 0.55, 1);
+    l.position.copy(pos); l.target.position.copy(pos.clone().add(dir)); l.visible = lit;
+    l.shadow.mapSize.set(1024, 1024); l.shadow.camera.near = 0.5; l.shadow.bias = -0.002;
+    u.group.add(l, l.target); u.lights.push(l);
+  };
+
+  if (u.lampType === 'tripod') {
+    const H = st.h, j = new V3(0, H - 15, 0);
+    for (let k = 0; k < 3; k++) { const a = k * 2 * Math.PI / 3; rod(new V3(Math.cos(a) * 10, 0, Math.sin(a) * 10), j, 0.9, 0x8f6b48); }
+    rod(j, new V3(0, H - 7, 0), 0.5, metal, false);
+    const [g, cy] = shadeGeom(st.shade, H - 5); shadeMesh(g, new V3(0, cy, 0));
+    bulb(new V3(0, H - 7, 0)); point(new V3(0, H - 6.5, 0));
+  } else if (u.lampType === 'column') {
+    const H = st.h; disc(5.5, 1, 0, metal);
+    rod(new V3(0, 1, 0), new V3(0, H - 8, 0), 0.8, metal);
+    const [g, cy] = shadeGeom(st.shade, H - 5); shadeMesh(g, new V3(0, cy, 0));
+    bulb(new V3(0, H - 7.5, 0)); point(new V3(0, H - 7, 0));
+  } else if (u.lampType === 'torchiere') {
+    const H = st.h; disc(5, 1, 0, metal);
+    rod(new V3(0, 1, 0), new V3(0, H - 4, 0), 0.8, metal);
+    shadeMesh(new THREE.CylinderGeometry(8, 2.2, 4, 40, 1, true), new V3(0, H - 2, 0));
+    addMesh(u, 'lamp', new THREE.CircleGeometry(2.2, 24).rotateX(Math.PI / 2), SHADE_COL[st.col], null, [0, H - 4, 0]);
+    bulb(new V3(0, H - 2.5, 0)); point(new V3(0, H - 1.2, 0));
+  } else if (u.lampType === 'arc') {
+    const H = st.h, R = st.reach;
+    addBox(u, 'lamp', 12, 2.2, 12, 0xd8d6d0, 0, 1.1, 0, null, { label });
+    const curve = new THREE.CatmullRomCurve3([new V3(0, 2, 0), new V3(0, H * 0.55, 0), new V3(R * 0.22, H * 0.97, 0),
+      new V3(R * 0.62, H, 0), new V3(R, H * 0.9, 0)]);
+    addMesh(u, 'lamp', new THREE.TubeGeometry(curve, 64, 0.55, 10, false), metal, null, null);
+    const pts = curve.getPoints(8);
+    for (let k = 0; k < pts.length - 1; k++) {   // colliders along the arc
+      const A = pts[k], B = pts[k + 1], len = A.distanceTo(B), mid = A.clone().add(B).multiplyScalar(0.5);
+      const c = addCollider(u, 'lamp', 1.1, len, 1.1, mid.x, mid.y, mid.z, null, label);
+      c.quaternion.setFromUnitVectors(Y_AXIS, B.clone().sub(A).normalize());
+    }
+    const tip = pts[pts.length - 1];
+    rod(tip, tip.clone().add(new V3(0, -3, 0)), 0.5, metal, false);
+    const rimY = tip.y - 9;
+    shadeMesh(new THREE.SphereGeometry(8, 40, 14, 0, Math.PI * 2, 0, Math.PI / 2), new V3(tip.x, rimY, 0));
+    bulb(new V3(tip.x, rimY + 2.5, 0)); spot(new V3(tip.x, rimY + 2, 0), new V3(0, -1, 0));
+  } else if (u.lampType === 'architect') {
+    disc(3.25, 1.2, 0, metal);
+    const P0 = new V3(0, 1.8, 0), d1 = new V3(Math.sin(st.a1 * DEG), Math.cos(st.a1 * DEG), 0);
+    const P1 = P0.clone().addScaledVector(d1, 15);
+    const d2 = new V3(Math.sin(st.a2 * DEG), Math.cos(st.a2 * DEG), 0), P2 = P1.clone().addScaledVector(d2, 15);
+    for (const dz of [-0.35, 0.35]) {
+      rod(P0.clone().setZ(dz), P1.clone().setZ(dz), 0.35, metal, dz < 0);
+      rod(P1.clone().setZ(dz), P2.clone().setZ(dz), 0.35, metal, dz < 0);
+    }
+    addMesh(u, 'lamp', new THREE.SphereGeometry(0.6, 12, 10), metal, null, [P1.x, P1.y, P1.z]);
+    const d = new V3(Math.sin(st.tilt * DEG), -Math.cos(st.tilt * DEG), 0);   // head axis: 0° = straight down
+    const q = new THREE.Quaternion().setFromUnitVectors(Y_AXIS, d.clone().negate());
+    const geom = st.shade === 'dome' ? new THREE.SphereGeometry(3.4, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2)
+                                     : new THREE.CylinderGeometry(1.2, 3, 6, 32, 1, true);
+    shadeMesh(geom, P2.clone().addScaledVector(d, st.shade === 'dome' ? 1.5 : 3), q);
+    bulb(P2.clone().addScaledVector(d, 2.2)); spot(P2.clone().addScaledVector(d, 2.6), d);
+  } else if (u.lampType === 'bankers') {
+    const H = st.h;
+    addBox(u, 'lamp', 8, 1.2, 5, 0xb08d57, 0, 0.6, 0, null, { label });
+    rod(new V3(0, 1.2, -1), new V3(0, H - 2.5, -1), 0.6, 0xb08d57);
+    const g = new THREE.CylinderGeometry(3.2, 3.2, 10, 32, 1, true, 0, Math.PI); g.rotateZ(Math.PI / 2);
+    shadeMesh(g, new V3(0, H - 3.2, 0.6));
+    bulb(new V3(0, H - 3.4, 0.6)); point(new V3(0, H - 4, 0.6));
+  } else {   // table lamp
+    const H = st.h, baseH = Math.max(7, H * 0.42);
+    addMesh(u, 'lamp', new THREE.CylinderGeometry(2.4, 3.1, baseH, 32), 0xd9d4ca, null, [0, baseH / 2, 0]);
+    addCollider(u, 'lamp', 6.2, baseH, 6.2, 0, baseH / 2, 0, null, label);
+    rod(new V3(0, baseH, 0), new V3(0, H - 5, 0), 0.45, 0xb08d57, false);
+    const [g, cy] = shadeGeom(st.shade, H - 5); shadeMesh(g, new V3(0, cy, 0));
+    bulb(new V3(0, H - 6.5, 0)); point(new V3(0, H - 6, 0));
+  }
+  for (const l of u.lights) l.castShadow = S.shadows;
+}
+function makeLamp(type, st, id) {
+  const T = LAMP_TYPES[type];
+  if (!id) id = 'lamp' + (++lampSeq); else lampSeq = Math.max(lampSeq, +id.slice(4) || 0);
+  const same = lampIds.filter(i => units[i].lampType === type).length;
+  const u = defUnit(id, same ? `${T.name} ${same + 1}` : T.name, lampBuild, { lamp: true, lampType: type });
+  u.state = Object.assign({ x: 0, y: 0, z: 0, ry: 0 }, LAMP_COMMON, T.def);
+  for (const [k, v] of Object.entries(st || {})) {
+    if (['x', 'y', 'z', 'ry', 'b', 'h', 'reach', 'a1', 'a2', 'tilt'].includes(k)) { if (Number.isFinite(v)) u.state[k] = v; }
+    else if (k === 'on') u.state.on = !!v;
+    else if (k === 'temp' && v in LAMP_TEMP) u.state.temp = v;
+    else if (k === 'shade' && T.shades.includes(v)) u.state.shade = v;
+    else if (k === 'col' && T.colors.includes(v)) u.state.col = v;
+  }
+  for (const [k, , lo, hi] of T.sliders) u.state[k] = Math.min(hi, Math.max(lo, u.state[k]));
+  u.build(u); apply(u);
+  lampIds.push(id);
+  return u;
+}
+function removeLamp(id) {
+  const u = units[id]; if (!u) return;
+  scene.remove(u.group); disposeTree(u.group);
+  delete units[id]; lampIds.splice(lampIds.indexOf(id), 1);
+  if (selected === id) selected = null;
+}
+const lampList = () => lampIds.map(id => ({ id, type: units[id].lampType, state: { ...units[id].state }, moved: units[id].moved }));
+function syncLamps(list) {
+  for (const id of [...lampIds]) removeLamp(id);
+  for (const L of list || []) if (L && L.type in LAMP_TYPES) { const u = makeLamp(L.type, L.state, typeof L.id === 'string' && /^lamp\d+$/.test(L.id) ? L.id : undefined); u.moved = !!L.moved; }
+}
+// where a new lamp goes: floor lamps just left of the desk, desk lamps on the free left part of the desk
+function newLampSpot(kind) {
+  const n = lampIds.filter(id => LAMP_TYPES[units[id].lampType].kind === kind).length;
+  return kind === 'floor' ? { x: -16 - (n % 3) * 6, y: -DESK_H, z: DESK_D - 6 + (n % 2) * 8, ry: 0 }
+                          : { x: 5 + (n % 3) * 3, y: 0, z: 13 + (n % 2) * 4, ry: 0 };
+}
+
 // ---- defaults ----
 const DEFAULTS = {
   rack: () => ({ x: DESK_W / 2, y: 0, z: RACK_D / 2, ry: 0 }),
@@ -1098,6 +1309,11 @@ const DEFAULTS = {
 };
 const ORDER = ['rack', 'pole', 'monitor', 'laptop', 'mixpre', 'keyboard', 'dock'];
 function resetUnit(id) {
+  if (units[id] && units[id].lamp) {
+    const u = units[id], T = LAMP_TYPES[u.lampType];
+    u.state = { x: u.state.x, y: u.state.y, z: u.state.z, ry: u.state.ry, ...LAMP_COMMON, ...T.def };
+    rebuild(u); return;
+  }
   const u = units[id]; u.state = DEFAULTS[id](); u.moved = false;
   if (id === 'pole' || id === 'monitor') {
     // a fresh arm pose that puts the monitor at its default spot (centered, 1" over the rack-top items)
@@ -1161,6 +1377,7 @@ function saveNow() {
     winOn: S.winOn, winX: S.winX, winW: S.winW, winY: S.winY, winH: S.winH }, units: {},
     cam: { p: camera.position.toArray(), t: controls.target.toArray() }, currentLayout };
   for (const id of ORDER) { const u = units[id]; data.units[id] = { state: u.state, moved: u.moved }; }
+  data.lamps = lampList();
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable: just don't persist */ }
 }
 const scheduleSave = () => { if (!saveTimer) saveTimer = setTimeout(saveNow, 300); };
@@ -1179,6 +1396,7 @@ if (saved && saved.units) for (const id of ORDER) {
   if (id === 'monitor') { u.state.tilt = Number.isFinite(st.tilt) ? st.tilt : 0; u.state.roll = st.roll === 90 ? 90 : 0; }
   apply(u);   // a save from before the joint model has no joints: the monitor's apply rebuilds them
 }
+if (saved && Array.isArray(saved.lamps)) syncLamps(saved.lamps);
 
 // ============================================================================
 // Arm solve: collar → elbow (horizontal) → pneumatic segment → tilt head → VESA
@@ -1240,6 +1458,16 @@ function objName(X) {
   if (X.u === 'monitor') return part === 'monitor:mon' || part === 'monitor:vesa' ? 'Monitor' : 'iPad';
   return { rack: 'Rack', pole: 'Arm', arm: 'Arm', laptop: 'MacBook', mixpre: 'MixPre', keyboard: 'Keyboard',
            dock: 'Dock', desk: 'Desk', wall: 'Wall', alex: 'Drawers' }[X.u] || X.c.userData.label;
+}
+// does unit u (as currently placed) overlap anything else in the scene?
+function unitHits(u) {
+  u.group.updateMatrixWorld(true);
+  const mine = u.colliders.map(c => obb(c));
+  for (const o of Object.values(units)) {
+    if (o === u || !o.group.visible) continue;
+    for (const c of o.colliders) { const B = obb(c); if (mine.some(A => overlap(A, B))) return true; }
+  }
+  return false;
 }
 function checkCollisions() {
   const list = [];
@@ -1416,6 +1644,7 @@ function snapshot() {
   const o = { S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, deskWall: S.deskWall, alexWall: S.alexWall,
     winOn: S.winOn, winX: S.winX, winW: S.winW, winY: S.winY, winH: S.winH }, units: {} };
   for (const id of ORDER) { const u = units[id]; o.units[id] = { state: { ...u.state }, moved: u.moved }; }
+  o.lamps = lampList();
   return JSON.stringify(o);
 }
 function commit(before) {
@@ -1451,6 +1680,9 @@ function restore(json) {
     if (id === 'monitor') { u.state.tilt = Number.isFinite(st.tilt) ? st.tilt : 0; u.state.roll = st.roll === 90 ? 90 : 0; }
     u.moved = !!v.moved; apply(u);
   }
+  syncLamps(o.lamps || []);
+  if (selected && !units[selected]) selected = null;
+  renderObjectList();
   if (!S.laptop && selected === 'laptop') selected = null;
   update();
 }
@@ -1564,6 +1796,7 @@ window.addEventListener('keydown', e => {
   const tool = { m: 'move', x: 'x', z: 'z', l: 'lift', r: 'rotate' }[key];
   if (tool) { S.mode = tool; syncSelPanel(); scheduleSave(); return; }
   if (!selected) return;
+  if ((e.key === 'Delete' || e.key === 'Backspace') && units[selected] && units[selected].lamp) { e.preventDefault(); deleteLamp(selected); return; }
   if (e.key === '[' || e.key === ']') undoable(() => { rotateBy((e.key === ']' ? 1 : -1) * (e.shiftKey ? 1 : 15)); apply(units[selected]); update(); })();
   else if (e.key === 'Escape') select(null);
 });
@@ -1615,13 +1848,26 @@ document.getElementById('infoBtn').addEventListener('click', () => {
 // ---- objects list ----
 const OBJECTS = [['rack', 'Gator rack'], ['monitor', 'Monitor + iPad'], ['pole', 'VIVO arm'], ['laptop', 'MacBook Air'],
                  ['mixpre', 'MixPre'], ['keyboard', 'Magic Keyboard'], ['dock', 'Anker dock']];
-document.getElementById('objList').append(...OBJECTS.map(([id, name]) => {
-  const b = document.createElement('button');
-  b.dataset.obj = id;
-  b.innerHTML = `<span>${name}</span><span class="dot" title="Overlaps something"></span>`;
-  b.addEventListener('click', () => { select(selected === id ? null : id); if (isPhone()) closeSheet('left'); });
-  return b;
-}));
+function renderObjectList() {
+  const rows = [...OBJECTS, ...lampIds.map(id => [id, units[id].name])].map(([id, name]) => {
+    const b = document.createElement('button');
+    b.dataset.obj = id;
+    const nm = document.createElement('span'); nm.textContent = name;
+    const dot = document.createElement('span'); dot.className = 'dot'; dot.title = 'Overlaps something';
+    b.append(nm);
+    if (units[id] && units[id].lamp) {
+      const del = document.createElement('span'); del.className = 'del'; del.textContent = '🗑'; del.title = `Delete ${name}`;
+      del.addEventListener('click', e => { e.stopPropagation(); deleteLamp(id); });
+      b.append(del);
+    }
+    b.append(dot);
+    b.addEventListener('click', () => { select(selected === id ? null : id); if (isPhone()) closeSheet('left'); });
+    return b;
+  });
+  document.getElementById('objList').replaceChildren(...rows);
+}
+const deleteLamp = id => undoable(() => { removeLamp(id); renderObjectList(); update(); })();
+renderObjectList();
 function syncObjects() {
   document.querySelectorAll('[data-obj]').forEach(b => {
     const id = b.dataset.obj;
@@ -1652,6 +1898,7 @@ function syncSelPanel() {
   set(inX, s.x.toFixed(2)); set(inY, s.y.toFixed(2)); set(inZ, s.z.toFixed(2));
   set(inR, (Math.round(s.ry / DEG * 10) / 10).toString());
   $('monRow').hidden = selected !== 'monitor';
+  syncLampPanel();
   syncArmPanel();
   if (selected === 'monitor') { set($('inTilt'), (s.tilt || 0).toString()); $('portraitBtn').classList.toggle('on', !!s.roll); }
   $('selCm').textContent = `Pivot ${(s.x * 2.54).toFixed(1)}, ${(s.y * 2.54).toFixed(1)}, ${(s.z * 2.54).toFixed(1)} cm` +
@@ -1697,7 +1944,7 @@ const DROPPABLE = ['rack', 'keyboard', 'laptop', 'mixpre', 'dock'];
 const dropAll = undoable(() => {
   const bottom = id => { const b = new THREE.Box3(); units[id].colliders.forEach(c => b.union(box(c))); return b.min.y; };
   scene.updateMatrixWorld(true);
-  const ids = DROPPABLE.filter(id => units[id].group.visible).sort((a, b) => bottom(a) - bottom(b));
+  const ids = [...DROPPABLE, ...lampIds].filter(id => units[id].group.visible).sort((a, b) => bottom(a) - bottom(b));
   for (const id of ids) {
     const t = dropTarget(id); if (!t || Math.abs(t.dy) < 1e-4) continue;
     const u = units[id]; u.state.y += t.dy; u.moved = true; apply(u);
@@ -1835,6 +2082,57 @@ $('scrClear').addEventListener('click', () => {
   let stored = null; try { stored = localStorage.getItem(SCREEN_KEY); } catch (e) { /* ignore */ }
   setScreenImage(stored || 'screen.jpg');   // screen.jpg is optional; a missing file just leaves the screen blank
 })();
+// ---- lamps: add buttons + the Inspector's Lamp section ----
+document.querySelectorAll('[data-addlamp]').forEach(b => b.addEventListener('click', () => undoable(() => {
+  const type = b.dataset.addlamp, kind = LAMP_TYPES[type].kind, u = makeLamp(type, newLampSpot(kind));
+  // look for a clear spot: desk lamps prefer a back corner of the desk, floor lamps the left of the desk
+  const pts = [];
+  if (kind === 'desk') {
+    for (let x = 4; x <= DESK_W - 4; x += 2) for (let z = 4; z <= DESK_D - 4; z += 2) pts.push([x, z]);
+    const d = ([x, z]) => Math.min(Math.hypot(x - (DESK_W - 5), z - 5), Math.hypot(x - 5, z - 5) + 0.5);
+    pts.sort((a, b) => d(a) - d(b));
+  } else {
+    for (let x = -8; x >= -48; x -= 2) for (let z = -6; z <= DESK_D + 30; z += 2) pts.push([x, z]);
+    const d = ([x, z]) => Math.hypot(x + 12, z - (DESK_D - 6));
+    pts.sort((a, b) => d(a) - d(b));
+  }
+  for (const [x, z] of pts) { u.state.x = x; u.state.z = z; apply(u); if (!unitHits(u)) break; }
+  u.moved = true; renderObjectList(); select(u.id);
+})()));
+let lampPanelFor = null, lampBefore = null;
+function buildLampPanel(u) {
+  const T = LAMP_TYPES[u.lampType], ctl = $('lampCtl');
+  const seg = (key, opts, names) => `<div class="seg">${opts.map(o => `<button data-lk="${key}" data-lv="${o}">${names[o] || o}</button>`).join('')}</div>`;
+  ctl.innerHTML =
+    `<div class="field"><label>Light</label><button class="icon sw" data-lsw="on"></button></div>` +
+    `<div class="slide"><span>Brightness</span><input type="range" data-ls="b" min="0.1" max="1.5" step="0.05"><output data-lo="b"></output></div>` +
+    `<div class="field"><label>Colour</label>${seg('temp', ['warm', 'neutral', 'cool'], { warm: 'Warm', neutral: 'Neutral', cool: 'Cool' })}</div>` +
+    (T.shades.length > 1 ? `<div class="field"><label>Shade</label>${seg('shade', T.shades, SHADE_LABEL)}</div>` : '') +
+    `<div class="field"><label>Finish</label>${seg('col', T.colors, SHADE_NAME)}</div>` +
+    T.sliders.map(([k, name, lo, hi, step]) => `<div class="slide"><span>${name}</span><input type="range" data-ls="${k}" min="${lo}" max="${hi}" step="${step}"><output data-lo="${k}"></output></div>`).join('') +
+    `<div class="btnrow" style="margin-top:8px"><button id="lampDel">🗑 Delete lamp</button></div>`;
+  ctl.querySelector('[data-lsw]').addEventListener('click', undoable(() => { u.state.on = !u.state.on; rebuild(u); update(); }));
+  ctl.querySelectorAll('[data-lk]').forEach(b => b.addEventListener('click', undoable(() => { u.state[b.dataset.lk] = b.dataset.lv; rebuild(u); update(); })));
+  ctl.querySelectorAll('[data-ls]').forEach(el => {
+    el.addEventListener('input', () => { if (!lampBefore) lampBefore = snapshot(); u.state[el.dataset.ls] = +el.value; rebuild(u); update(); });
+    el.addEventListener('change', () => { if (lampBefore) { commit(lampBefore); lampBefore = null; } });
+  });
+  $('lampDel').addEventListener('click', () => deleteLamp(u.id));
+}
+function syncLampPanel() {
+  const u = selected && units[selected], isLamp = !!(u && u.lamp);
+  $('lampPanel').hidden = !isLamp;
+  if (!isLamp) { lampPanelFor = null; return; }
+  if (lampPanelFor !== u) { lampPanelFor = u; buildLampPanel(u); }
+  const T = LAMP_TYPES[u.lampType], ctl = $('lampCtl'), st = u.state;
+  const sw = ctl.querySelector('[data-lsw]'); sw.textContent = st.on ? 'On' : 'Off'; sw.classList.toggle('on', st.on);
+  ctl.querySelectorAll('[data-lk]').forEach(b => b.classList.toggle('on', st[b.dataset.lk] === b.dataset.lv));
+  ctl.querySelectorAll('[data-ls]').forEach(el => { if (document.activeElement !== el) el.value = st[el.dataset.ls]; });
+  ctl.querySelectorAll('[data-lo]').forEach(o => {
+    const k = o.dataset.lo, sl = T.sliders.find(x => x[0] === k);
+    o.textContent = k === 'b' ? `${Math.round(st.b * 100)}%` : `${(+st[k]).toFixed(sl && sl[4] < 1 ? 1 : 0)}${sl ? sl[5] : ''}`;
+  });
+}
 // ---- light controls ----
 $('facing').append(...COMPASS.map((n, i) => { const o = document.createElement('option'); o.value = i * 22.5; o.textContent = `${n} (${i * 22.5}°)`; return o; }));
 $('facing').addEventListener('change', () => { S.facing = +$('facing').value; update(); });
