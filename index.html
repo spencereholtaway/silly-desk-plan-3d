@@ -119,11 +119,16 @@
   .menuItem.open { border-color:var(--accent); }
   .menuItem .caret { color:var(--muted); }
   #layoutList { display:flex; flex-direction:column; gap:2px; margin:6px 0; }
-  .lay { display:flex; align-items:center; gap:4px; padding:3px 4px; border-radius:6px; border:1px solid transparent; }
+  .lay { display:flex; align-items:center; gap:6px; padding:6px 6px 6px 8px; border-radius:7px; border:1px solid transparent; cursor:pointer; }
+  .lay:hover { background:var(--hover); }
+  .lay:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .lay .ico { background:transparent; border-color:transparent; padding:1px 6px; font-size:13px; opacity:.55; }
+  .lay:hover .ico, .lay .ico:focus-visible { opacity:1; }
+  .lay .ico:hover { background:var(--card); border-color:var(--line); }
   .lay.cur { border-color:var(--accent-line); background:var(--accent-soft); }
   .lay .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .lay .when { color:var(--muted); font-size:11px; white-space:nowrap; }
-  .lay button { padding:2px 7px; font-size:11.5px; }
+
   .fly { position:fixed; z-index:50; min-width:220px; max-width:calc(100vw - 16px); padding:4px; background:var(--card);
          border:1px solid var(--line); border-radius:8px; box-shadow:0 10px 30px rgba(20,30,50,.16); }
   .fly button { display:flex; justify-content:space-between; gap:12px; width:100%; text-align:left; border-color:transparent; }
@@ -210,7 +215,6 @@
     <input id="layoutName" type="text" maxlength="60" placeholder="Layout name" aria-label="Layout name">
     <button type="submit" id="saveBtn">Save</button>
   </form>
-  <button id="recentBtn" class="menuItem" aria-haspopup="true" aria-expanded="false"><span>Open recent</span><span class="caret">▸</span></button>
   <div id="layoutList"></div>
   <div class="lrow">
     <button id="exportBtn">Export…</button>
@@ -218,7 +222,6 @@
     <input id="importFile" type="file" accept=".json,application/json" hidden>
   </div>
 </div>
-<div id="recentFly" class="fly" role="menu" hidden></div>
 
 <aside id="left" class="sidebar" aria-label="Setup">
   <div class="sheetHead"><b>Setup</b><button class="icon" data-close="left" aria-label="Close">✕</button></div>
@@ -1764,17 +1767,16 @@ $('notesBody').innerHTML =
   `<li>Orbit: drag empty space. Zoom: scroll / pinch. Pan: right-drag / two fingers. View buttons jump to 3D, flat Top / Front / Side, or a seated eye view; orbiting out of a flat view brings perspective back.</li>` +
   `<li>Select by clicking an object or using Setup → Objects. Drag it with the Inspector's tool: Move, X, Z, Lift or Rotate (keys M X Z L R; [ ] rotate 15°, Shift for 1°). Or type exact values.</li>` +
   `<li>VIVO arm: the sliders set its joints and the monitor follows. Dragging the monitor moves the joints instead; if it can't get there it stops at its limit and says so.</li>` +
-  `<li>Layouts ▾ saves named setups in this browser, with Open recent ▸ and Export / Import for other devices. Undo / Redo: ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Y).</li>` +
+  `<li>Layouts ▾ saves named setups in this browser; click one to load it (most recent first). Export / Import moves them to other devices. Undo / Redo: ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Y).</li>` +
   `<li>Drop all lowers the rack, keyboard, laptop, MixPre and dock onto whatever is beneath. Objects can't be scaled.</li></ul>`;
 function setMenu(open) {
   $('menu').hidden = !open; $('menuBtn').setAttribute('aria-expanded', open);
   $('menuBtn').classList.toggle('on', open);
-  if (!open) closeRecent();
-  else renderLayouts();
+  if (open) renderLayouts();
 }
 
 // ============================================================================
-// Saved layouts: save / load / rename / delete / open recent / export / import
+// Saved layouts: save / load (click a row) / rename / delete / export / import
 // ============================================================================
 const LAYOUT_KEY = 'deskplan3d.layouts.v1', RECENT_MAX = 6;
 function readLayouts() {
@@ -1815,7 +1817,7 @@ function loadLayout(id) {
   const db = readLayouts(), it = db.items[id]; if (!it) return;
   try { undoable(() => restore(it.data))(); } catch (e) { alert(`"${it.name}" couldn't be loaded: ${e.message}`); return; }
   it.opened = Date.now(); writeLayouts(db);
-  currentLayout = id; closeRecent(); renderLayouts(); syncLayoutStatus(); scheduleSave();
+  currentLayout = id; renderLayouts(); syncLayoutStatus(); scheduleSave();
 }
 function renameLayout(id) {
   const db = readLayouts(), it = db.items[id]; if (!it) return;
@@ -1833,61 +1835,27 @@ function deleteLayout(id) {
   renderLayouts(); syncLayoutStatus();
 }
 const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
+// Click a row to load it. Most recently used first, so the list doubles as "recent".
 function renderLayouts() {
   const db = readLayouts(), list = $('layoutList'), ids = Object.keys(db.items);
-  ids.sort((a, b) => db.items[a].name.localeCompare(db.items[b].name));
+  const used = id => Math.max(db.items[id].opened || 0, db.items[id].updated || 0);
+  ids.sort((a, b) => used(b) - used(a));
+  const icon = (text, title, fn) => el('button', { className: 'ico', textContent: text, title, ariaLabel: title,
+    onclick: e => { e.stopPropagation(); fn(); } });
   list.replaceChildren(...(ids.length ? ids.map(id => {
     const it = db.items[id];
-    return el('div', { className: 'lay' + (id === currentLayout ? ' cur' : '') },
-      el('span', { className: 'nm', textContent: it.name, title: it.name }),
-      el('span', { className: 'when', textContent: when(it.updated) }),
-      el('button', { textContent: 'Load', onclick: () => loadLayout(id) }),
-      el('button', { textContent: 'Rename', onclick: () => renameLayout(id) }),
-      el('button', { textContent: '🗑', title: 'Delete', ariaLabel: `Delete ${it.name}`, onclick: () => deleteLayout(id) }));
+    const row = el('div', { className: 'lay' + (id === currentLayout ? ' cur' : ''), role: 'button', tabIndex: 0,
+      title: `Load "${it.name}"`, onclick: () => loadLayout(id),
+      onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadLayout(id); } } },
+      el('span', { className: 'nm', textContent: it.name }),
+      el('span', { className: 'when', textContent: when(used(id)) }),
+      icon('✎', `Rename ${it.name}`, () => renameLayout(id)),
+      icon('🗑', `Delete ${it.name}`, () => deleteLayout(id)));
+    return row;
   }) : [el('div', { className: 'sub', textContent: 'No saved layouts yet.' })]));
   const cur = currentLayout && db.items[currentLayout];
   if (document.activeElement !== $('layoutName')) $('layoutName').value = cur ? cur.name : '';
 }
-// ---- Open recent: a submenu that flies out to the right (or below when there's no room) ----
-let flyTimer = 0;
-function openRecent() {
-  clearTimeout(flyTimer);
-  const db = readLayouts(), fly = $('recentFly'), btn = $('recentBtn');
-  const ids = Object.keys(db.items).sort((a, b) => Math.max(db.items[b].opened, db.items[b].updated) - Math.max(db.items[a].opened, db.items[a].updated)).slice(0, RECENT_MAX);
-  fly.replaceChildren(...(ids.length ? ids.map(id => el('button', { role: 'menuitem', onclick: () => loadLayout(id) },
-    el('span', { textContent: (id === currentLayout ? '✓ ' : '') + db.items[id].name }),
-    el('span', { className: 'sub', textContent: when(Math.max(db.items[id].opened, db.items[id].updated)) })))
-    : [el('div', { className: 'empty', textContent: 'Nothing saved yet' })]));
-  fly.hidden = false; btn.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
-  const r = btn.getBoundingClientRect(), fw = fly.offsetWidth, fh = fly.offsetHeight;
-  let left = r.right + 4, top = r.top;
-  if (left + fw > window.innerWidth - 8) { left = Math.max(8, Math.min(r.left + 16, window.innerWidth - fw - 8)); top = r.bottom + 4; }
-  top = Math.max(8, Math.min(top, window.innerHeight - fh - 8));
-  fly.style.left = left + 'px'; fly.style.top = top + 'px';
-}
-function closeRecent() {
-  clearTimeout(flyTimer);
-  $('recentFly').hidden = true; $('recentBtn').classList.remove('open'); $('recentBtn').setAttribute('aria-expanded', 'false');
-}
-const finePointer = matchMedia('(hover:hover) and (pointer:fine)').matches;
-$('recentBtn').addEventListener('click', e => {
-  e.stopPropagation();
-  if (finePointer || $('recentFly').hidden) openRecent(); else closeRecent();
-});
-if (finePointer) {
-  const later = () => { flyTimer = setTimeout(closeRecent, 300); };
-  $('recentBtn').addEventListener('mouseenter', openRecent);
-  $('recentBtn').addEventListener('mouseleave', later);
-  $('recentFly').addEventListener('mouseenter', () => clearTimeout(flyTimer));
-  $('recentFly').addEventListener('mouseleave', later);
-}
-document.addEventListener('pointerdown', e => {
-  if ($('recentFly').hidden || $('recentFly').contains(e.target) || $('recentBtn').contains(e.target)) return;
-  closeRecent();
-});
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeRecent(); });
-$('menu').addEventListener('scroll', closeRecent);
-window.addEventListener('resize', closeRecent);
 $('saveForm').addEventListener('submit', e => { e.preventDefault(); saveLayout($('layoutName').value); $('layoutName').blur(); });
 // ---- export / import as a JSON file (also the way to move layouts between devices) ----
 $('exportBtn').addEventListener('click', () => {
@@ -1920,7 +1888,7 @@ $('menuBtn').addEventListener('click', () => setMenu($('menu').hidden));
 $('menuClose').addEventListener('click', () => setMenu(false));
 for (const id of ['ovPill', 'wallPill', 'armPill']) $(id).addEventListener('click', () => { showTab('measure'); openSheet('right'); });
 document.addEventListener('pointerdown', e => {   // click outside closes the Layouts popover
-  if ($('menu').hidden || $('menu').contains(e.target) || $('menuBtn').contains(e.target) || $('recentFly').contains(e.target)) return;
+  if ($('menu').hidden || $('menu').contains(e.target) || $('menuBtn').contains(e.target)) return;
   setMenu(false);
 }, true);   // capture: object drags stop the event before it would bubble up
 
