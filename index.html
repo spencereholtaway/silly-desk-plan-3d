@@ -175,17 +175,20 @@ const DBX = { w: 19, h: 1.75, d: 8 };                 // depth assumed
 // riser post at the elbow → gas-spring parallelogram arm pivoting on top of that riser (13" of
 // travel) → VESA head: 180° swivel, −30°/+45° tilt, 180° rotation, quick-release plate.
 // The listing gives the screen-center range: 8.75" (collar low, arm down) to 27.5" (collar at the
-// pole top, arm up). Segment lengths aren't published: L2 comes from the 13" travel at an assumed
-// ±40° swing, L1 fills the 26" max extension after an assumed 3" head, and the riser and the
-// collar's lowest point are solved so the model hits 8.75" and 27.5" exactly.
+// pole top, arm up) and a 26" max extension measured with the gas arm level. The listing photos
+// show the gas arm swinging from about 27° down to about 51° up. Segment lengths aren't
+// published: L2 comes from the 13" travel over that swing, L1 fills the 26" extension after an
+// assumed 3" head, and the riser and the collar's lowest point are solved so the model hits
+// 8.75" and 27.5" exactly.
 const COLLAR_H = 2.4;   // arm-support height, estimated from the listing photo
-const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, travel: 13, phiMax: 40, head: 3, headSwivel: 90,
+const ARM = { poleH: 13, poleR: 0.7, maxExt: 26, travel: 13, phiMin: -27, phiMax: 51, head: 3, headSwivel: 90,
   lowT: 1.5, centerMin: 8.75, centerMax: 27.5, tiltMin: -30, tiltMax: 45 };
-ARM.L2 = ARM.travel / (2 * Math.sin(ARM.phiMax * Math.PI / 180));
+ARM.sinLo = Math.sin(ARM.phiMin * Math.PI / 180); ARM.sinHi = Math.sin(ARM.phiMax * Math.PI / 180);
+ARM.L2 = ARM.travel / (ARM.sinHi - ARM.sinLo);
 ARM.L1 = ARM.maxExt - ARM.L2 - ARM.head;
 ARM.collarMax = ARM.poleH - COLLAR_H;                                     // collar top flush with the pole top
-ARM.riser = ARM.centerMax - ARM.travel / 2 - ARM.poleH - ARM.lowT;       // elbow post height
-ARM.collarMin = ARM.centerMin + ARM.travel / 2 - COLLAR_H - ARM.lowT - ARM.riser;
+ARM.riser = ARM.centerMax - ARM.L2 * ARM.sinHi - ARM.poleH - ARM.lowT;   // elbow post height
+ARM.collarMin = ARM.centerMin - ARM.L2 * ARM.sinLo - COLLAR_H - ARM.lowT - ARM.riser;
 const CLAMP_W = 2.4, CLAMP_D = 2.4, POLE_GAP = 1.5, COLLAR_GAP = 1, COLLAR_R = 1.15;
 
 // ---- 4. Monitors (no stand) ---------------------------------------------------
@@ -235,7 +238,7 @@ const NOTES = {
     `Rack 2U height 6.5″ (same 21 × 14″ footprint) is unverified. Rack internals (1.5″ top/bottom panels, 1″ sides, open back) are simplified.`,
     `dbx 286s depth 8″ is assumed; drawn in the top rack space, front flush with the rack front.`,
     `VIVO STAND-V101GT: 13″ pole, 26″ max extension and 13″ of gas-spring travel are from retailer listings; the 8.75″–27.5″ screen-center range is from the Amazon listing images.`,
-    `Arm segment lengths aren't published. Modelled as: lower arm ${ARM.L1.toFixed(1)}″, gas-spring arm ${ARM.L2.toFixed(1)}″ swinging ±${ARM.phiMax}°, ${ARM.head}″ head (adds to 26″). The elbow riser (${ARM.riser.toFixed(1)}″) and the collar's lowest setting (${ARM.collarMin.toFixed(2)}″) are solved so the full range is exactly 8.75–27.5″. Collar ${COLLAR_H}″ tall (from the photo), pole Ø 1.4″ and clamp 2.4 × 2.4″ are estimates. The clamp's left edge is 1.5″ from the rack.`,
+    `Arm segment lengths aren't published. Modelled as: lower arm ${ARM.L1.toFixed(1)}″, gas-spring arm ${ARM.L2.toFixed(1)}″ swinging ${ARM.phiMin}° to +${ARM.phiMax}° (read off the listing photos), ${ARM.head}″ head (adds to 26″). The elbow riser (${ARM.riser.toFixed(1)}″) and the collar's lowest setting (${ARM.collarMin.toFixed(2)}″) are solved so the full range is exactly 8.75–27.5″. Collar ${COLLAR_H}″ tall (from the photo), pole Ø 1.4″ and clamp 2.4 × 2.4″ are estimates. The clamp's left edge is 1.5″ from the rack.`,
     `The collar can't go above ${ARM.collarMax.toFixed(1)}″ (its top meets the pole top), so "1″ above the 4U rack" (11″) isn't possible; it stops at ${ARM.collarMax.toFixed(1)}″.`,
     `The arm's head is assumed level with the VESA center, and the screen is assumed to face the way the gas-spring arm points within the head's ±90° swivel.`,
     `VESA mount assumed at the panel center. Monitor back plane placed at z = ${MON_VESA_Z}″ by default.`,
@@ -259,7 +262,8 @@ const NOTES = {
     `MixPre: 110 × 114 × 36 mm (from brief).`,
     `Dell U2724D (current monitor): 612.2 × 352.5 × 50.1 mm without stand.`,
     `IKEA ALEX drawer unit on castors (wide): 67 W × 48 D × 66 H cm, 6 drawers.`,
-    `VIVO V101GT build (assembly instructions, via search): pole screws into the base; "arm support" collar slides on and locks with a 6 mm hex; lower arm sits on top and swivels; gas-spring arm sits on the lower arm's end; tension set with a 6 mm hex at the back; VESA head swivels 180°, tilts −30° to +45°, rotates 180°.`,
+    `VIVO V101GT build (assembly instructions, via search): pole screws into the base; "arm support" collar slides on and locks with a 6 mm hex; lower arm sits on top and swivels; gas-spring arm sits on the lower arm's end; tension set with a hex key at the gas arm's root (clockwise = lighter monitors, counter-clockwise = heavier); VESA head swivels 180°, tilts −30° to +45°, rotates 180°.`,
+    `VIVO listing images: screen-center height 8.75″ to 27.5″; max arm extension 26″ (pole to VESA, gas arm level); 33 lb capacity; VESA 75 × 75 and 100 × 100.`,
     `Apple, ASUS, INNOCN and VIVO sites were blocked from the build environment. Apple figures match Apple's published specs as quoted by third parties.`,
   ],
 };
@@ -606,10 +610,10 @@ function updateArm() {
   const fwd = new V3(Math.sin(Mo.ry), 0, Math.cos(Mo.ry));
   const vesa = new V3(Mo.x, Mo.y, Mo.z);
   const E = vesa.clone().addScaledVector(fwd, -ARM.head); // gas-spring arm end (head swivel axis)
-  // gas-spring pitch from the height difference, held to its ±phiMax swing
+  // gas-spring pitch from the height difference, held to its phiMin..phiMax swing
   const rise = E.y - yRoot, phiRaw = Math.asin(Math.max(-1, Math.min(1, rise / ARM.L2))) / DEG;
-  const heightOk = Math.abs(rise) <= ARM.L2 * Math.sin(ARM.phiMax * DEG) + 1e-6;
-  const phi = Math.max(-ARM.phiMax, Math.min(ARM.phiMax, phiRaw));
+  const heightOk = rise >= ARM.L2 * ARM.sinLo - 1e-6 && rise <= ARM.L2 * ARM.sinHi + 1e-6;
+  const phi = Math.max(ARM.phiMin, Math.min(ARM.phiMax, phiRaw));
   const L1 = ARM.L1, L2h = ARM.L2 * Math.cos(phi * DEG);
   // two-link solve in plan: pole axis → elbow → E
   const S0 = new V3(P.x, yLow, P.z);
@@ -643,7 +647,7 @@ function updateArm() {
   bar(u, 'head', E, vesa.clone().addScaledVector(fwd, -0.25), 1.0, 0x5a5d63, 'Arm head');
   const ext = Math.hypot(vesa.x - P.x, vesa.z - P.z);
   armInfo = { ext, phi: phiRaw, swivel, heightOk, swivelOk, reachOk: reachOk && ext <= ARM.maxExt + 1e-6,
-    lo: yRoot - ARM.travel / 2, hi: yRoot + ARM.travel / 2 };
+    lo: yRoot + ARM.L2 * ARM.sinLo, hi: yRoot + ARM.L2 * ARM.sinHi };
   armInfo.ok = armInfo.reachOk && heightOk && swivelOk;
 }
 function bar(u, part, A, B, t, color, label) {
@@ -795,7 +799,7 @@ function updateClearances() {
     row('Screen center above desk', fmt(ch), A.heightOk ? '' : 'neg') +
     row('Arm height range at this collar', `${A.lo.toFixed(1)}–${A.hi.toFixed(1)}″${A.heightOk ? '' : ` ⚠ ${need > 0 ? 'raise' : 'lower'} collar ${Math.abs(need).toFixed(2)}″${collarFits ? '' : ' (past the pole\'s end)'}`}`, A.heightOk ? '' : 'neg') +
     row('Arm full range (collar + gas spring)', `${ARM.centerMin}–${ARM.centerMax}″`) +
-    row('Gas-spring arm angle', `${A.heightOk ? A.phi.toFixed(1) + '°' : 'beyond'} (±${ARM.phiMax}°)`, A.heightOk ? '' : 'neg') +
+    row('Gas-spring arm angle', `${A.heightOk ? A.phi.toFixed(1) + '°' : 'beyond'} (${ARM.phiMin}° to +${ARM.phiMax}°)`, A.heightOk ? '' : 'neg') +
     row('Head swivel', `${A.swivel.toFixed(0)}° (max ${ARM.headSwivel}°)`, A.swivelOk ? '' : 'neg') +
     row('ALEX gap to desk right edge', fmt(ab.min.x - DESK_W), sign(ab.min.x - DESK_W)) +
     row('ALEX top below desktop', fmt(-ab.max.y)) +
