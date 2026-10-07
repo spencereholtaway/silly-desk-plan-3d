@@ -122,6 +122,12 @@
       <button data-rot="1">+1°</button><button data-rot="15">+15°</button>
       <button id="selReset">Reset this</button>
     </div>
+    <div class="row" id="monRow" hidden>
+      <label>Tilt <input id="inTilt" type="number" step="1" min="-30" max="45"></label>
+      <button data-tilt="-5">−5°</button><button data-tilt="5">+5°</button>
+      <button id="portraitBtn">Portrait</button>
+      <span class="sub">+ top toward you, − away (+45° to −30°)</span>
+    </div>
     <div class="sub" id="selCm"></div>
   </div>
   <div id="room" class="panel" hidden>
@@ -240,6 +246,7 @@ const NOTES = {
     `VIVO STAND-V101GT: 13″ pole, 26″ max extension and 13″ of gas-spring travel are from retailer listings; the 8.75″–27.5″ screen-center range is from the Amazon listing images.`,
     `Arm segment lengths aren't published. Modelled as: lower arm ${ARM.L1.toFixed(1)}″, gas-spring arm ${ARM.L2.toFixed(1)}″ swinging ${ARM.phiMin}° to +${ARM.phiMax}° (read off the listing photos), ${ARM.head}″ head (adds to 26″). The elbow riser (${ARM.riser.toFixed(1)}″) and the collar's lowest setting (${ARM.collarMin.toFixed(2)}″) are solved so the full range is exactly 8.75–27.5″. Collar ${COLLAR_H}″ tall (from the photo), pole Ø 1.4″ and clamp 2.4 × 2.4″ are estimates. The clamp's left edge is 1.5″ from the rack.`,
     `The collar can't go above ${ARM.collarMax.toFixed(1)}″ (its top meets the pole top), so "1″ above the 4U rack" (11″) isn't possible; it stops at ${ARM.collarMax.toFixed(1)}″.`,
+    `Monitor tilt pivots at the VESA point (the real tilt joint is slightly behind it). Portrait turns the iPad and its side arm with the monitor, as they share the VESA plate.`,
     `The arm's head is assumed level with the VESA center, and the screen is assumed to face the way the gas-spring arm points within the head's ±90° swivel.`,
     `VESA mount assumed at the panel center. Monitor back plane placed at z = ${MON_VESA_Z}″ by default.`,
     `INNOCN 34C1U: width 32.16″ from a retailer listing; height 14.4″ and depth 2.0″ (no stand) are estimates.`,
@@ -367,8 +374,11 @@ const rackH = () => RACKS[S.rack].h;
 const rackTopY = () => units.rack.state.y + rackH();
 const mon = () => MONITORS[S.mon];
 const mac = () => MACS[S.mac];
-const monitorAutoY = () => rackTopY() + Math.max(MIXPRE.h, mac().h * MAC_BASE_FRAC) + MON_CLEAR + mon().h / 2 +
-  (S.ipad === 'below' ? IPAD_GAP + IPAD.h : 0);
+const monitorAutoY = () => {
+  const portrait = units.monitor && units.monitor.state.roll;
+  return rackTopY() + Math.max(MIXPRE.h, mac().h * MAC_BASE_FRAC) + MON_CLEAR + (portrait ? mon().w : mon().h) / 2 +
+    (S.ipad === 'below' && !portrait ? IPAD_GAP + IPAD.h : 0);
+};
 
 // ---- Desk ----
 defUnit('desk', 'Desk', u => {
@@ -463,6 +473,15 @@ defUnit('monitor', 'Monitor', u => {
   else addBox(u, 'side', 0.8, barLen, 0.5, 0x55585e, 0, sy * mid, -0.5, null, { label: 'Side arm' });
   const postLen = plateBack + 0.75;
   addBox(u, 'side', 0.8, 0.8, postLen, 0x55585e, ix, iy, -0.75 + postLen / 2, null, { label: 'Side arm' });
+}, {
+  // VIVO head: swivel (yaw), tilt +45°/−30° about the VESA point, 180° rotation (portrait)
+  apply(u) {
+    const s = u.state;
+    s.tilt = Math.max(ARM.tiltMin, Math.min(ARM.tiltMax, s.tilt || 0));
+    u.group.position.set(s.x, s.y, s.z);
+    u.group.rotation.order = 'YXZ';
+    u.group.rotation.set(s.tilt * DEG, s.ry, (s.roll || 0) * DEG);
+  },
 });
 function curvedMonitor(u, M) {
   const R = M.curve, W = M.w, H = M.h, D = M.d, t = 0.6;
@@ -525,7 +544,7 @@ defUnit('alex', 'IKEA ALEX drawers', u => {
 const DEFAULTS = {
   rack: () => ({ x: DESK_W / 2, y: 0, z: RACK_D / 2, ry: 0 }),
   pole: () => { const r = units.rack.state; return { x: r.x + RACK_W / 2 + POLE_GAP + CLAMP_W / 2, y: rackTopY() + COLLAR_GAP, z: CLAMP_D / 2, ry: 0 }; },
-  monitor: () => ({ x: DESK_W / 2, y: monitorAutoY(), z: MON_VESA_Z, ry: 0 }),
+  monitor: () => ({ x: DESK_W / 2, y: monitorAutoY(), z: MON_VESA_Z, ry: 0, tilt: 0, roll: 0 }),
   laptop: () => { const r = units.rack.state, L = mac(); return { x: r.x - RACK_W / 2 + L.w / 2, y: rackTopY(), z: r.z + RACK_D / 2 - L.d / 2, ry: 0 }; },
   mixpre: () => { const r = units.rack.state; return { x: r.x + RACK_W / 2 - MIXPRE.w / 2, y: rackTopY(), z: r.z + RACK_D / 2 - MIXPRE.d / 2, ry: 0 }; },
   keyboard: () => ({ x: DESK_W / 2, y: 0, z: DESK_D - KB_FRONT_GAP - KB.d / 2, ry: 0 }),
@@ -593,6 +612,7 @@ if (saved && saved.units) for (const id of ORDER) {
   if (!st || !['x', 'y', 'z', 'ry'].every(k => Number.isFinite(st[k]))) continue;
   const u = units[id];
   u.state = { x: st.x, y: st.y, z: st.z, ry: st.ry }; u.moved = !!v.moved;
+  if (id === 'monitor') { u.state.tilt = Number.isFinite(st.tilt) ? st.tilt : 0; u.state.roll = st.roll === 90 ? 90 : 0; }
   if (id === 'monitor') { u.autoY = v.autoY !== false; if (u.autoY) u.state.y = monitorAutoY(); }
   apply(u);
 }
@@ -1008,6 +1028,8 @@ function syncSelPanel() {
   const set = (el, v) => { if (document.activeElement !== el) el.value = v; };
   set(inX, s.x.toFixed(2)); set(inY, s.y.toFixed(2)); set(inZ, s.z.toFixed(2));
   set(inR, (Math.round(s.ry / DEG * 10) / 10).toString());
+  $('monRow').hidden = selected !== 'monitor';
+  if (selected === 'monitor') { set($('inTilt'), (s.tilt || 0).toString()); $('portraitBtn').classList.toggle('on', !!s.roll); }
   $('selCm').textContent = `Pivot ${(s.x * 2.54).toFixed(1)}, ${(s.y * 2.54).toFixed(1)}, ${(s.z * 2.54).toFixed(1)} cm` +
     (selected === 'monitor' ? ' · pivot = VESA point' : selected === 'pole' ? ' · Y = collar bottom' : ' · pivot = bottom center');
 }
@@ -1026,6 +1048,17 @@ document.querySelectorAll('#modeSeg button').forEach(b => b.addEventListener('cl
 document.querySelectorAll('[data-rot]').forEach(b => b.addEventListener('click', undoable(() => {
   if (!selected) return; rotateBy(+b.dataset.rot); apply(units[selected]); update();
 })));
+const setTilt = undoable(t => {
+  const u = units.monitor; u.state.tilt = t; u.moved = true; apply(u); update();
+  $('inTilt').value = u.state.tilt;   // show the clamped value even while the box has focus
+});
+$('inTilt').addEventListener('change', () => { const v = +$('inTilt').value; if (Number.isFinite(v)) setTilt(v); });
+document.querySelectorAll('[data-tilt]').forEach(b => b.addEventListener('click', () => setTilt((units.monitor.state.tilt || 0) + +b.dataset.tilt)));
+$('portraitBtn').addEventListener('click', undoable(() => {
+  const u = units.monitor; u.state.roll = u.state.roll ? 0 : 90; u.moved = true;
+  if (u.autoY) u.state.y = monitorAutoY();
+  apply(u); update();
+}));
 $('selReset').addEventListener('click', undoable(() => { if (selected) { resetUnit(selected); update(); } }));
 $('selClose').addEventListener('click', () => select(null));
 
