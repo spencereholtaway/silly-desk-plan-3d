@@ -645,7 +645,7 @@ function applyLighting() {
   hemi.color.set(S.sunOn && !S.studio ? 0x9db4ff : 0xffffff);
   if (S.sunOn && !S.studio) hemi.color.lerp(new THREE.Color(0xffffff), daylight);
   for (const l of [key, sun, ceil]) l.castShadow = S.shadows;
-  for (const id of lampIds) for (const l of units[id].lights || []) l.castShadow = S.shadows;
+  for (const id of lampIds) for (const l of units[id].lights || []) l.castShadow = S.shadows && !!l.userData.shadow;
   if (units.wall && units.wall.sky) {
     if (!S.sunOn) units.wall.sky.material.color.copy(SKY.day);
     else {
@@ -1183,15 +1183,19 @@ function lampBuild(u) {
     m.material.dispose(); m.material = new THREE.MeshBasicMaterial({ color: lit ? glow : 0x8a8a8a });
     m.userData.noTint = true; m.castShadow = false;
   };
-  const point = pos => {
-    const l = new THREE.PointLight(LAMP_TEMP[st.temp], 0.85 * st.b, 0, 1);
-    l.position.copy(pos); l.visible = lit;
-    l.shadow.mapSize.set(512, 512); l.shadow.camera.near = 0.6; l.shadow.bias = -0.003; l.shadow.normalBias = 0.05;
-    u.group.add(l); u.lights.push(l);
+  // a shaded bulb: a wide shadow-casting spot out of the shade's main opening plus a soft glow
+  // without shadows (several shadowed point lights together render black, and cost 6 passes each)
+  const point = (pos, dir = new V3(0, -1, 0)) => {
+    const s = new THREE.SpotLight(LAMP_TEMP[st.temp], 0.85 * st.b, 0, 1.15, 0.7, 1);
+    s.position.copy(pos); s.target.position.copy(pos.clone().add(dir)); s.visible = lit; s.userData.shadow = true;
+    s.shadow.mapSize.set(1024, 1024); s.shadow.camera.near = 0.5; s.shadow.bias = -0.002;
+    const g = new THREE.PointLight(LAMP_TEMP[st.temp], 0.22 * st.b, 0, 1);
+    g.position.copy(pos); g.visible = lit;
+    u.group.add(s, s.target, g); u.lights.push(s, g);
   };
   const spot = (pos, dir) => {
     const l = new THREE.SpotLight(LAMP_TEMP[st.temp], 1.4 * st.b, 0, 0.62, 0.55, 1);
-    l.position.copy(pos); l.target.position.copy(pos.clone().add(dir)); l.visible = lit;
+    l.position.copy(pos); l.target.position.copy(pos.clone().add(dir)); l.visible = lit; l.userData.shadow = true;
     l.shadow.mapSize.set(1024, 1024); l.shadow.camera.near = 0.5; l.shadow.bias = -0.002;
     u.group.add(l, l.target); u.lights.push(l);
   };
@@ -1212,7 +1216,7 @@ function lampBuild(u) {
     rod(new V3(0, 1, 0), new V3(0, H - 4, 0), 0.8, metal);
     shadeMesh(new THREE.CylinderGeometry(8, 2.2, 4, 40, 1, true), new V3(0, H - 2, 0));
     addMesh(u, 'lamp', new THREE.CircleGeometry(2.2, 24).rotateX(Math.PI / 2), SHADE_COL[st.col], null, [0, H - 4, 0]);
-    bulb(new V3(0, H - 2.5, 0)); point(new V3(0, H - 1.2, 0));
+    bulb(new V3(0, H - 2.5, 0)); point(new V3(0, H - 1.2, 0), new V3(0, 1, 0));
   } else if (u.lampType === 'arc') {
     const H = st.h, R = st.reach;
     addBox(u, 'lamp', 12, 2.2, 12, 0xd8d6d0, 0, 1.1, 0, null, { label });
@@ -1257,11 +1261,11 @@ function lampBuild(u) {
     const H = st.h, baseH = Math.max(7, H * 0.42);
     addMesh(u, 'lamp', new THREE.CylinderGeometry(2.4, 3.1, baseH, 32), 0xd9d4ca, null, [0, baseH / 2, 0]);
     addCollider(u, 'lamp', 6.2, baseH, 6.2, 0, baseH / 2, 0, null, label);
-    rod(new V3(0, baseH, 0), new V3(0, H - 5, 0), 0.45, 0xb08d57, false);
+    rod(new V3(0, baseH, 0), new V3(0, H - 7.6, 0), 0.45, 0xb08d57, false);   // stops under the bulb: a rod around the light would shadow everything
     const [g, cy] = shadeGeom(st.shade, H - 5); shadeMesh(g, new V3(0, cy, 0));
     bulb(new V3(0, H - 6.5, 0)); point(new V3(0, H - 6, 0));
   }
-  for (const l of u.lights) l.castShadow = S.shadows;
+  for (const l of u.lights) l.castShadow = S.shadows && !!l.userData.shadow;
 }
 function makeLamp(type, st, id) {
   const T = LAMP_TYPES[type];
