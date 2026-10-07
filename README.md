@@ -1,6 +1,6 @@
 # Desk Plan 3D
 
-A to-scale 3D mockup of my desk setup for checking fit and clearances: rack, monitor arm, monitor, laptop, iPad, keyboard and the IKEA ALEX drawers.
+A to-scale 3D mockup of my desk setup for checking fit and clearances: rack, monitor arm, monitor, laptop, iPad, keyboard, Anker dock and the IKEA ALEX drawers.
 
 **Live:** https://spencereholtaway.github.io/silly-desk-plan-3d/
 
@@ -10,6 +10,6 @@ A to-scale 3D mockup of my desk setup for checking fit and clearances: rack, mon
 - Tap or click an object to select it, then drag to move, lift or rotate it, or type exact values. Objects can't be scaled.
 - Your layout, toggles and camera view are saved in the browser (localStorage) and restored on the next visit. "Reset layout" starts over.
 - Menu → Layouts: save named layouts, load, rename, delete, "Open recent ▸" flyout, and Export / Import as a JSON file to move them between devices.
-- "Drop all" lowers the rack, keyboard, laptop and MixPre onto whatever is beneath each one.
+- "Drop all" lowers the rack, keyboard, laptop, MixPre and dock onto whatever is beneath each one.
 - Undo / Redo buttons (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z) step back through moves, rotations and toggles.
 - Unverified dimensions are listed in the in-page "Assumptions & sources" panel.

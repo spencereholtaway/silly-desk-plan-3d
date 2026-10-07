@@ -155,6 +155,9 @@
     <div class="row" id="poleRow" hidden>
       <span class="sub">Collar</span><button data-collar="min">⤓ Lowest</button><button data-collar="max">⤒ Highest</button>
     </div>
+    <div class="row" id="elbowRow" hidden>
+      <span class="sub">Arm</span><button data-fold="-1" title="Fold flat along the wall, lower arm pointing left">◀ Fold left</button><button data-fold="1" title="Fold flat along the wall, lower arm pointing right">Fold right ▶</button><button id="flipElbow" title="Swing the elbow to the other side">⇄ Flip elbow</button>
+    </div>
     <div class="row" id="armRow" hidden>
       <span class="sub">Height on the arm</span><button data-armh="lo">⤓ Lowest</button><button data-armh="hi">⤒ Highest</button>
     </div>
@@ -257,6 +260,9 @@ const MAC_OPEN = 110, MAC_BASE_FRAC = 0.6;           // base/lid thickness split
 // ---- 7. Sound Devices MixPre -------------------------------------------------
 const MIXPRE = { w: 110 * MM, d: 114 * MM, h: 36 * MM };
 
+// ---- 7b. Anker Prime TB5 Docking Station (14-in-1), on the desk ----
+const DOCK = { w: 116 * MM, d: 116 * MM, h: 75 * MM };
+
 // ---- 8. Apple Magic Keyboard with Numeric Keypad ----------------------------
 const KB = { w: 16.48, d: 4.52, hFront: 0.16, hBack: 0.43 };
 const KB_FRONT_GAP = 2;
@@ -294,6 +300,7 @@ const NOTES = {
     `MacBook base/lid thickness split (60/40 of closed height) and lid length (= depth) are assumed. Laptop and MixPre fronts are flush with the rack front.`,
     `ALEX (fixed in place, except its wall gap): ${ALEX.gap}″ gap from the desk's right edge, ${ALEX.castor}″ castor height and equal drawer heights are assumed.`,
     `Back wall is 8 ft tall (assumed). Desk and ALEX gaps to the wall default to ${WALL_GAP}″; set them with the Wall gaps button. The arm clamp's spine sits in the desk gap.`,
+    `Anker dock placement (on the desk left of the rack, 1″ from the back edge, ports facing you) is assumed.`,
     `Seated eye height (${(EYE_Y + DESK_H).toFixed(1)}″ above floor, ${EYE_Y.toFixed(1)}″ above desk) is an anthropometric estimate for a 6′5″ person on a typical chair.`,
   ],
   sources: [
@@ -306,6 +313,7 @@ const NOTES = {
     `Magic Keyboard with Numeric Keypad: 16.48 × 4.52″, 0.16–0.43″ tall.`,
     `MixPre: 110 × 114 × 36 mm (from brief).`,
     `Dell U2724D (current monitor): 612.2 × 352.5 × 50.1 mm without stand.`,
+    `Anker Prime TB5 Docking Station (14-in-1): 116 × 116 × 75 mm (Anker spec, via search).`,
     `IKEA ALEX drawer unit on castors (wide): 67 W × 48 D × 66 H cm, 6 drawers.`,
     `VIVO V101GT build (assembly instructions, via search): pole screws into the base; "arm support" collar slides on and locks with a 6 mm hex; lower arm sits on top and swivels; gas-spring arm sits on the lower arm's end; tension set with a hex key at the gas arm's root (clockwise = lighter monitors, counter-clockwise = heavier); VESA head swivels 180°, tilts −30° to +45°, rotates 180°.`,
     `VIVO listing images: screen-center height 8.75″ to 27.5″; max arm extension 26″ (pole to VESA, gas arm level); 33 lb capacity; VESA 75 × 75 and 100 × 100.`,
@@ -494,6 +502,7 @@ defUnit('pole', 'VIVO V101GT pole', u => {
 // ---- Arm segments (rebuilt from pole + monitor; selecting it selects the pole) ----
 defUnit('arm', 'VIVO arm', () => {}, { selectable: false, selId: 'pole' });
 let armInfo = {};
+const armMemory = { elbow: null };   // last elbow position, so the elbow keeps its side as things move
 
 // ---- Monitor + iPad (pivot = VESA point on the monitor's back plane) ----
 defUnit('monitor', 'Monitor', u => {
@@ -560,6 +569,16 @@ defUnit('mixpre', 'MixPre', u => {
   addBox(u, 'body', 1.7, 0.01, 1.1, 0x1c2733, 0, P.h + 0.005, -0.4, null, { collider: false });
 });
 
+// ---- Anker Prime TB5 dock (pivot = bottom center; ports face +Z) ----
+defUnit('dock', 'Anker Prime TB5 dock', u => {
+  const D = DOCK, cap = 0.35;
+  addBox(u, 'dock', D.w, D.h - cap, D.d, 0x9b9ea4, 0, (D.h - cap) / 2, 0, null, { label: 'Anker dock' });
+  addBox(u, 'dock', D.w + 0.04, 0.08, D.d + 0.04, 0x4aa3ff, 0, D.h - cap - 0.04, 0, null, { collider: false });  // light ring
+  addBox(u, 'dock', D.w, cap, D.d, 0x2b2d31, 0, D.h - cap / 2, 0, null, { collider: false });                    // dark top
+  addCyl(u, 'dock', 0.32, 0.06, 0x5a5d63, 0, D.h + 0.03, 0);                                                     // top dial
+  for (let i = 0; i < 4; i++) addBox(u, 'dock', 0.38, 0.14, 0.02, 0x1d1f23, -1.2 + i * 0.8, D.h * 0.45, D.d / 2 + 0.011, null, { collider: false });
+});
+
 // ---- Magic Keyboard (pivot = bottom center) ----
 defUnit('keyboard', 'Magic Keyboard', u => {
   const s = new THREE.Shape();
@@ -593,10 +612,13 @@ const DEFAULTS = {
   laptop: () => { const r = units.rack.state, L = mac(); return { x: r.x - RACK_W / 2 + L.w / 2, y: rackTopY(), z: r.z + RACK_D / 2 - L.d / 2, ry: 0 }; },
   mixpre: () => { const r = units.rack.state; return { x: r.x + RACK_W / 2 - MIXPRE.w / 2, y: rackTopY(), z: r.z + RACK_D / 2 - MIXPRE.d / 2, ry: 0 }; },
   keyboard: () => ({ x: DESK_W / 2, y: 0, z: DESK_D - KB_FRONT_GAP - KB.d / 2, ry: 0 }),
+  // on the desk, left of the rack, 1" in from the back edge (spot assumed)
+  dock: () => { const r = units.rack.state; return { x: r.x - RACK_W / 2 - 1 - DOCK.w / 2, y: 0, z: 1 + DOCK.d / 2, ry: 0 }; },
   alex: () => ({ x: DESK_W + ALEX.gap + ALEX.w / 2, y: -DESK_H, z: wallZ() + S.alexWall + ALEX.d / 2, ry: 0 }),
 };
-const ORDER = ['rack', 'pole', 'monitor', 'laptop', 'mixpre', 'keyboard'];
+const ORDER = ['rack', 'pole', 'monitor', 'laptop', 'mixpre', 'keyboard', 'dock'];
 function resetUnit(id) {
+  if (id === 'pole' || id === 'monitor') armMemory.elbow = null;
   const u = units[id]; u.state = DEFAULTS[id](); u.moved = false; if (id === 'monitor') u.autoY = true; apply(u);
 }
 // Re-derive dependent positions after a toggle changes sizes.
@@ -658,6 +680,7 @@ if (saved && saved.units) for (const id of ORDER) {
   if (!st || !['x', 'y', 'z', 'ry'].every(k => Number.isFinite(st[k]))) continue;
   const u = units[id];
   u.state = { x: st.x, y: st.y, z: st.z, ry: st.ry }; u.moved = !!v.moved;
+  if (id === 'pole' && (st.elbow === 1 || st.elbow === -1)) u.state.elbow = st.elbow;
   if (id === 'monitor') { u.state.tilt = Number.isFinite(st.tilt) ? st.tilt : 0; u.state.roll = st.roll === 90 ? 90 : 0; }
   if (id === 'monitor') { u.autoY = v.autoY !== false; if (u.autoY) u.state.y = monitorAutoY(); }
   apply(u);
@@ -691,16 +714,31 @@ function updateArm() {
     return Math.acos(Math.max(-1, Math.min(1, h.normalize().dot(fwd)))) / DEG;
   };
   if (d >= L1 + L2h - 1e-6) { reachOk = d <= L1 + L2h + 1e-6; elbow = S0.clone().addScaledVector(dir, L1); }
-  else if (d <= Math.abs(L1 - L2h)) { reachOk = false; elbow = S0.clone().addScaledVector(dir, L1); }
+  else if (d < 0.25 && Math.abs(L1 - L2h) < 0.25) {
+    // head almost over the pole with the arm folded flat: the elbow could point anywhere, so keep
+    // it where it was (or the saved fold direction)
+    const m = armMemory.elbow ? new V3(armMemory.elbow.x - S0.x, 0, armMemory.elbow.z - S0.z) : new V3(1, 0, 0);
+    if (m.lengthSq() < 1e-6) m.set(1, 0, 0);
+    elbow = S0.clone().addScaledVector(m.normalize(), L1);
+  }
+  else if (d < Math.abs(L1 - L2h) - 1e-6) { reachOk = false; elbow = S0.clone().addScaledVector(dir, L1); }
   else {
     const k = (L1 * L1 - L2h * L2h + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - k * k));
     const perp = new V3(-dir.z, 0, dir.x), base = S0.clone().addScaledVector(dir, k);
     const e1 = base.clone().addScaledVector(perp, h), e2 = base.clone().addScaledVector(perp, -h);
     // fold toward the back (may hit the wall: warned), unless the head can't swivel that far
-    const back = e1.z < e2.z ? e1 : e2, front = back === e1 ? e2 : e1;
-    elbow = swivelOf(back) <= ARM.headSwivel || swivelOf(front) > ARM.headSwivel ? back : front;
+    // A real arm doesn't flip its elbow: keep it on the side it was on (nearest pose), else use the
+    // saved side; with neither, fold toward the back unless the head can't swivel that far.
+    if (armMemory.elbow) elbow = e1.distanceToSquared(armMemory.elbow) <= e2.distanceToSquared(armMemory.elbow) ? e1 : e2;
+    else if (P.elbow === 1 || P.elbow === -1) elbow = P.elbow === 1 ? e1 : e2;
+    else {
+      const back = e1.z < e2.z ? e1 : e2, front = back === e1 ? e2 : e1;
+      elbow = swivelOf(back) <= ARM.headSwivel || swivelOf(front) > ARM.headSwivel ? back : front;
+    }
+    if (h > 1e-3) P.elbow = elbow === e1 ? 1 : -1;   // side of the pole→head line, seen from above
   }
   elbow.y = yLow;
+  armMemory.elbow = elbow.clone();
   const swivel = swivelOf(elbow), swivelOk = swivel <= ARM.headSwivel + 0.5;
   const dark = 0x45484e;
   bar(u, 'seg1', S0, elbow, ARM.lowT, dark, 'Arm (lower)');
@@ -890,6 +928,7 @@ function updateClearances() {
   else objLabel('lap', '', new V3(), false);
   objLabel('mix', `<b>MixPre</b> ${dimTxt(MIXPRE.w, MIXPRE.h, MIXPRE.d)}`, new V3(xcx, xb.max.y + 0.3, xb.max.z + 1.2));
   const kb = box(units.keyboard.named.kb);
+  objLabel('dock', `<b>Anker Prime TB5 dock</b> ${dimTxt(DOCK.w, DOCK.h, DOCK.d)}`, top(box(units.dock.named.dock), 0.5));
   objLabel('alex', `<b>IKEA ALEX</b> ${dimTxt(ALEX.w, ALEX.h, ALEX.d)}`, top(ab, 0.8));
   objLabel('kb', `<b>Magic Keyboard</b> ${dimTxt(KB.w, KB.hBack, KB.d)}`, top(kb, 0.5));
   objLabel('pole', `<b>VIVO V101GT</b> pole ${ARM.poleH}″, collar @ ${po.state.y.toFixed(2)}″`, new V3(po.state.x, ARM.poleH + 0.8, po.state.z));
@@ -934,6 +973,7 @@ function commit(before) {
 const undoable = fn => (...args) => { const before = snapshot(); fn(...args); commit(before); };
 function restore(json) {
   const o = typeof json === 'string' ? JSON.parse(json) : json;
+  armMemory.elbow = null;   // take the elbow side from the restored layout
   const src = o.S || {}, next = {};
   if (src.rack in RACKS) next.rack = src.rack;
   if (src.mon in MONITORS) next.mon = src.mon;
@@ -951,6 +991,7 @@ function restore(json) {
     const u = units[id], v = o.units && o.units[id], st = v && v.state;
     if (!st || !['x', 'y', 'z', 'ry'].every(k => Number.isFinite(st[k]))) { resetUnit(id); continue; }
     u.state = { x: st.x, y: st.y, z: st.z, ry: st.ry };
+    if (id === 'pole' && (st.elbow === 1 || st.elbow === -1)) u.state.elbow = st.elbow;
     if (id === 'monitor') { u.state.tilt = Number.isFinite(st.tilt) ? st.tilt : 0; u.state.roll = st.roll === 90 ? 90 : 0; }
     u.moved = !!v.moved; u.autoY = v.autoY; apply(u);
   }
@@ -1091,6 +1132,7 @@ function syncSelPanel() {
   set(inR, (Math.round(s.ry / DEG * 10) / 10).toString());
   $('monRow').hidden = $('armRow').hidden = selected !== 'monitor';
   $('poleRow').hidden = selected !== 'pole';
+  $('elbowRow').hidden = selected !== 'pole' && selected !== 'monitor';
   if (selected === 'monitor') { set($('inTilt'), (s.tilt || 0).toString()); $('portraitBtn').classList.toggle('on', !!s.roll); }
   $('selCm').textContent = `Pivot ${(s.x * 2.54).toFixed(1)}, ${(s.y * 2.54).toFixed(1)}, ${(s.z * 2.54).toFixed(1)} cm` +
     (selected === 'monitor' ? ' · pivot = VESA point' : selected === 'pole' ? ' · Y = collar bottom' : ' · pivot = bottom center');
@@ -1131,7 +1173,7 @@ function dropTarget(id) {
 }
 // Drop all: bottom-up, so the rack settles before what sits on it. The monitor and pole stay put:
 // the arm holds them up.
-const DROPPABLE = ['rack', 'keyboard', 'laptop', 'mixpre'];
+const DROPPABLE = ['rack', 'keyboard', 'laptop', 'mixpre', 'dock'];
 const dropAll = undoable(() => {
   const bottom = id => { const b = new THREE.Box3(); units[id].colliders.forEach(c => b.union(box(c))); return b.min.y; };
   scene.updateMatrixWorld(true);
@@ -1144,6 +1186,23 @@ const dropAll = undoable(() => {
 });
 $('dropAllBtn').addEventListener('click', dropAll);
 
+// Fold the arm flat along the wall (lower arm parallel to it, gas arm folded back over it), monitor
+// hung just in front of the pole, like the listing's 8.75" photo. Keeps the monitor's height when
+// the arm can hold it.
+function foldArm(sx) {
+  const P = units.pole.state, M = units.monitor;
+  const yRoot = P.y + COLLAR_H + ARM.lowT + ARM.riser;
+  const y = Math.max(yRoot + ARM.L2 * ARM.sinLo, Math.min(yRoot + ARM.L2 * ARM.sinHi, M.state.y));
+  const L2h = ARM.L2 * Math.cos(Math.asin((y - yRoot) / ARM.L2));
+  const ex = P.x + sx * (Math.abs(ARM.L1 - L2h) + 0.02);
+  Object.assign(M.state, { x: ex, y, z: P.z + ARM.head, ry: 0 });
+  M.moved = true; M.autoY = false; apply(M);
+  armMemory.elbow = new V3(P.x + sx * ARM.L1, 0, P.z);
+}
+document.querySelectorAll('[data-fold]').forEach(b => b.addEventListener('click', undoable(() => { foldArm(+b.dataset.fold); update(); })));
+$('flipElbow').addEventListener('click', undoable(() => {
+  const P = units.pole.state; P.elbow = P.elbow === 1 ? -1 : 1; armMemory.elbow = null; update();
+}));
 document.querySelectorAll('[data-collar]').forEach(b => b.addEventListener('click', undoable(() => {
   const u = units.pole; u.state.y = b.dataset.collar === 'min' ? ARM.collarMin : ARM.collarMax; u.moved = true; apply(u); update();
 })));
@@ -1269,9 +1328,10 @@ $('notesBody').innerHTML =
   `<h4>Controls</h4><ul><li>Orbit: drag empty space (one finger / left mouse). Zoom: pinch / wheel. Pan: two fingers / right mouse.</li>` +
   `<li>Tap or click an object to select it, then drag it. Move slides along the floor (from a front or side view it only moves across the screen, so nothing jumps toward you). X, Z and Lift lock to one axis; Rotate turns it. You can also type exact values. With a mouse, Shift-drag lifts and Alt-drag rotates; R rotates 15°.</li>` +
   `<li>Your layout, toggles and view are saved in this browser and restored next visit. Reset layout starts over.</li>
-  <li>⤓ Drop all lowers the rack, keyboard, laptop and MixPre onto whatever is under each one (rack, desk or floor). The monitor and arm stay where the arm holds them.</li>
+  <li>⤓ Drop all lowers the rack, keyboard, laptop, MixPre and dock onto whatever is under each one (rack, desk or floor). The monitor and arm stay where the arm holds them.</li>
   <li>Menu → Layouts saves named setups in this browser; Open recent ▸ jumps between the last few. Export / Import moves them to another device as a file.</li>
   <li>Top, Front and Side show a flat view with no perspective (highlighted while active). Orbit away and perspective comes back; pan and zoom keep it flat.</li>
+  <li>Arm (select the pole or monitor): Fold left / right folds the arm flat along the wall with the monitor in front of the pole; then drag the monitor forward with Z and the elbow swings out sideways. The elbow stays on its side as you move things; ⇄ Flip elbow swaps it.</li>
   <li>Undo / Redo step back through moves, rotations and toggles (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z). Camera moves aren't undone.</li>
   <li>Objects can't be scaled. The iPad, its side arm and the plate move with the monitor.</li></ul>`;
 function setMenu(open) {
