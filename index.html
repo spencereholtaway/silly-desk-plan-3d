@@ -5,191 +5,331 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Desk Plan 3D</title>
 <style>
-  :root { --bg:#eef0f3; --panel:rgba(255,255,255,.92); --ink:#1d2330; --muted:#5b6475; --line:#d3d8e0;
-          --accent:#2f6fde; --warn:#c62828; --ok:#1b7f3b; }
+  :root {
+    --bg:#eef0f3; --side:#f7f8fa; --card:#fff; --ink:#1d2330; --muted:#5f6878; --line:#dde1e7; --line2:#e9ecf1;
+    --accent:#2f6fde; --accent-soft:#e8f0fe; --accent-line:#c7d8fb; --hover:#eef1f6;
+    --warn:#c62828; --warn-soft:#fff3f3; --warn-line:#efc4c4; --ok:#1b7f3b;
+    --bar-h:44px; --status-h:26px; --left-w:268px; --right-w:328px;
+  }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--ink);
-              font:12px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; -webkit-text-size-adjust:100%; }
-  #wrap { position:fixed; inset:0; }
-  #wrap canvas { display:block; touch-action:none; }
-  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 8px;
-           box-shadow:0 1px 4px rgba(0,0,0,.08); }
-  #hud { position:fixed; top:max(8px,env(safe-area-inset-top)); left:8px; right:8px; display:flex; flex-direction:column;
-         gap:6px; align-items:flex-start; pointer-events:none; }
-  #hud > * { pointer-events:auto; }
-  #menuRow { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
-  #menuBtn { box-shadow:0 1px 4px rgba(0,0,0,.08); font-weight:600; }
-  .pill { color:var(--warn); font-weight:600; border-color:#e6b3b3; background:#fff5f5; }
-  #menu { width:min(380px, calc(100vw - 16px)); max-height:calc(100vh - 230px); overflow:auto; }
-  #menu .row.top { display:flex; justify-content:space-between; align-items:center; }
-  .lrow { display:flex; gap:4px; align-items:center; margin:4px 0; }
-  .lrow input[type=text] { flex:1; min-width:0; font:inherit; font-size:12px; padding:4px 6px; border:1px solid var(--line); border-radius:6px; }
-  .menuItem { display:flex; justify-content:space-between; align-items:center; width:100%; text-align:left; margin:4px 0; }
-  .menuItem.open, .menuItem:hover { border-color:var(--accent); }
-  .menuItem .caret { color:var(--muted); }
-  #layoutList { display:flex; flex-direction:column; gap:3px; margin:4px 0; }
-  .lay { display:flex; align-items:center; gap:4px; padding:3px 4px; border-radius:6px; border:1px solid transparent; }
-  .lay.cur { border-color:var(--accent); background:rgba(47,111,222,.06); }
-  .lay .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .lay .when { color:var(--muted); font-size:10.5px; white-space:nowrap; }
-  .lay button { padding:2px 6px; font-size:11px; }
-  .fly { position:fixed; z-index:30; min-width:220px; max-width:calc(100vw - 16px); padding:4px; }
-  .fly button { display:flex; justify-content:space-between; gap:12px; width:100%; text-align:left; border-color:transparent; }
-  .fly button:hover { border-color:var(--accent); }
-  .fly .empty { padding:6px 8px; color:var(--muted); }
-  #menu h4 { margin:8px 0 0; font-size:12px; }
-  details summary { cursor:pointer; font-weight:600; list-style:none; user-select:none; margin-top:8px; }
-  details summary::-webkit-details-marker { display:none; }
-  details summary::before { content:"▸ "; color:var(--muted); }
-  details[open] summary::before { content:"▾ "; }
-  #clrTable { border-collapse:collapse; margin-top:4px; width:100%; }
-  #clrTable td { padding:1px 0; vertical-align:top; }
-  #clrTable td.v { text-align:right; padding-left:10px; white-space:nowrap; font-variant-numeric:tabular-nums; }
-  .neg { color:var(--warn); font-weight:600; } .pos { color:var(--ok); }
-  #overlaps { margin-top:4px; color:var(--warn); font-weight:600; }
-  #notes h4 { margin:6px 0 2px; font-size:12px; }
-  #notes ul { margin:0; padding-left:16px; } #notes li { margin:2px 0; }
-  #notes .flag { color:#a15c00; }
-  .sub { color:var(--muted); font-size:11px; }
-  #bottom { position:fixed; left:8px; right:8px; bottom:max(8px,env(safe-area-inset-bottom));
-            display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; }
-  #bottom > * { pointer-events:auto; }
-  #bar { display:flex; flex-wrap:wrap; gap:4px 10px; justify-content:center; max-width:760px; }
-  .grp { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:3px; }
-  #bar { max-width:min(760px, calc(100vw - 16px)); }
-  .grp > span { color:var(--muted); font-size:11px; margin-right:1px; }
-  button { font:inherit; font-size:12px; border:1px solid var(--line); background:#fff; color:var(--ink);
-           border-radius:6px; padding:4px 7px; cursor:pointer; touch-action:manipulation; white-space:nowrap; }
+              font:12.5px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; -webkit-text-size-adjust:100%; }
+  [hidden] { display:none !important; }
+  .hidden { display:none !important; }
+  .sub { color:var(--muted); font-size:11.5px; }
+  .spacer { flex:1; }
+
+  /* ---- buttons ---- */
+  button { font:inherit; font-size:12.5px; color:var(--ink); background:var(--card); border:1px solid var(--line);
+           border-radius:6px; padding:4px 9px; cursor:pointer; touch-action:manipulation; white-space:nowrap; line-height:1.35; }
+  button:hover { background:var(--hover); }
   button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-  button:active { transform:translateY(1px); }
-  button:disabled { opacity:.4; cursor:default; transform:none; }
-  #sel { width:min(420px, 100%); }
-  #sel.hidden { display:none; }
-  #room { width:min(420px, 100%); }
-  #room .row.top { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
-  .slide { display:flex; align-items:center; gap:6px; margin:4px 0; }
-  .slide > span { width:34px; color:var(--muted); font-size:11px; }
+  button:disabled { opacity:.38; cursor:default; background:var(--card); }
+  button:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .icon { padding:3px 7px; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; background:var(--card); }
+  .seg > button { border:0; border-radius:0; border-right:1px solid var(--line2); background:transparent; }
+  .seg > button:last-child { border-right:0; }
+  .seg > button:hover { background:var(--hover); }
+  .seg > button.on { background:var(--accent); color:#fff; }
+  .btnrow { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .pill { color:var(--warn); font-weight:600; border-color:var(--warn-line); background:var(--warn-soft); }
+  .pill:hover { background:#ffe9e9; }
+
+  /* ---- app bar ---- */
+  #appbar { position:fixed; top:0; left:0; right:0; height:var(--bar-h); z-index:20; display:flex; align-items:center; gap:10px;
+            padding:0 10px; background:var(--card); border-bottom:1px solid var(--line); }
+  .brand { display:flex; align-items:baseline; gap:8px; min-width:0; margin-right:4px; }
+  .brand b { font-size:13.5px; }
+  #layoutTitle { color:var(--muted); font-size:12px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tbgrp { display:flex; gap:4px; align-items:center; }
+  .tb { background:transparent; border-color:transparent; }
+  .tb:hover { background:var(--hover); }
+  .tb.on { background:var(--accent-soft); border-color:var(--accent-line); color:var(--accent); }
+  #pills { display:flex; gap:6px; align-items:center; }
+
+  /* ---- sidebars ---- */
+  .sidebar { position:fixed; top:var(--bar-h); bottom:var(--status-h); background:var(--side); overflow:auto; z-index:10; }
+  #left { left:0; width:var(--left-w); border-right:1px solid var(--line); }
+  #right { right:0; width:var(--right-w); border-left:1px solid var(--line); display:flex; flex-direction:column; overflow:hidden; }
+  .sidebar section { padding:12px 14px; border-bottom:1px solid var(--line2); }
+  .sidebar h3 { margin:0 0 8px; font-size:10.5px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .field { display:flex; align-items:center; gap:8px; margin:7px 0; }
+  .field > label { width:78px; flex:none; color:var(--muted); }
+  .field.col { flex-direction:column; align-items:stretch; gap:4px; }
+  .field.col > label { width:auto; }
+  .list { display:flex; flex-direction:column; gap:2px; }
+  .list > button { display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%; text-align:left;
+                   background:transparent; border-color:transparent; padding:5px 8px; }
+  .list > button:hover { background:var(--hover); }
+  .list > button.on { background:var(--accent-soft); border-color:var(--accent-line); color:var(--accent); }
+  .tag { font-size:10.5px; color:var(--muted); background:var(--line2); border-radius:4px; padding:0 5px; }
+  .list > button.on .tag { background:#d7e4fd; color:var(--accent); }
+  .dot { width:7px; height:7px; border-radius:50%; background:transparent; flex:none; }
+  .hit .dot { background:var(--warn); }
+
+  /* ---- tabs (right sidebar) ---- */
+  .tabs { display:flex; align-items:stretch; border-bottom:1px solid var(--line); background:var(--card); flex:none; }
+  .tabs > [data-tab] { flex:1; border:0; border-radius:0; background:transparent; padding:9px 4px 8px; color:var(--muted);
+                       border-bottom:2px solid transparent; font-weight:550; }
+  .tabs > [data-tab].on { color:var(--accent); border-bottom-color:var(--accent); background:transparent; }
+  .tabpane { overflow:auto; flex:1; }
+  .empty { padding:28px 18px; color:var(--muted); text-align:center; }
+  .sel-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px 4px; }
+  .sel-head b { font-size:13.5px; }
+
+  /* ---- inspector controls ---- */
+  .tools { width:100%; display:flex; }
+  .tools > button { flex:1; padding:5px 2px; }
+  .grid4 { display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; margin:8px 0 6px; }
+  .grid4 label { display:flex; flex-direction:column; gap:2px; font-size:11px; color:var(--muted); }
+  input[type=number], input[type=text] { font:inherit; font-size:12.5px; width:100%; min-width:0; padding:4px 6px;
+                                         border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); }
+  .slide { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .slide > span { width:70px; flex:none; color:var(--muted); }
   .slide input[type=range] { flex:1; min-width:0; accent-color:var(--accent); }
-  .slide output { width:96px; text-align:right; font-variant-numeric:tabular-nums; font-size:11px; }
-  .slide button { width:28px; padding:3px 0; }
-  #armPanel .slide > span { width:62px; }
-  #armPanel .slide output { width:64px; }
-  #sel .row { display:flex; gap:4px; align-items:center; flex-wrap:wrap; margin:3px 0; }
-  #sel .row.top { justify-content:space-between; flex-wrap:nowrap; }
-  #sel label { display:flex; align-items:center; gap:3px; font-size:11px; color:var(--muted); }
-  #sel input { width:62px; font:inherit; font-size:12px; padding:3px 4px; border:1px solid var(--line); border-radius:5px; }
-  #labels { position:fixed; inset:0; pointer-events:none; overflow:hidden; }
+  .slide output { width:58px; flex:none; text-align:right; font-variant-numeric:tabular-nums; }
+  .slide > button { width:26px; padding:2px 0; flex:none; }
+  #room .slide { flex-wrap:wrap; gap:4px 6px; margin:4px 0 10px; }
+  #room .slide > span { width:100%; }
+  #room .slide output { width:44px; }
+
+  /* ---- measurements ---- */
+  #clrTable { border-collapse:collapse; width:100%; }
+  #clrTable td { padding:6px 0; border-bottom:1px solid var(--line2); vertical-align:top; }
+  #clrTable td.v { text-align:right; padding-left:10px; white-space:nowrap; font-variant-numeric:tabular-nums; font-weight:600; }
+  .neg { color:var(--warn); } .pos { color:var(--ok); }
+  #overlaps { margin-top:4px; }
+  #overlaps .ok { color:var(--ok); }
+  #overlaps li { color:var(--warn); margin:3px 0; }
+  #overlaps ul { margin:4px 0 0; padding-left:16px; }
+  #notesBody h4 { margin:8px 0 4px; font-size:12px; }
+  #notesBody ul { margin:0; padding-left:16px; } #notesBody li { margin:3px 0; }
+  #notesBody .flag { color:#a15c00; }
+
+  /* ---- layouts popover + recent flyout ---- */
+  .pop { position:fixed; z-index:40; top:calc(var(--bar-h) + 4px); right:8px; width:min(360px, calc(100vw - 16px));
+         max-height:calc(100vh - var(--bar-h) - 16px); overflow:auto; background:var(--card); border:1px solid var(--line);
+         border-radius:10px; box-shadow:0 10px 30px rgba(20,30,50,.16); padding:10px 12px; }
+  .pop .row.top { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .lrow { display:flex; gap:6px; align-items:center; margin:8px 0; }
+  .menuItem { display:flex; justify-content:space-between; align-items:center; width:100%; text-align:left; margin:4px 0; }
+  .menuItem.open { border-color:var(--accent); }
+  .menuItem .caret { color:var(--muted); }
+  #layoutList { display:flex; flex-direction:column; gap:2px; margin:6px 0; }
+  .lay { display:flex; align-items:center; gap:4px; padding:3px 4px; border-radius:6px; border:1px solid transparent; }
+  .lay.cur { border-color:var(--accent-line); background:var(--accent-soft); }
+  .lay .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lay .when { color:var(--muted); font-size:11px; white-space:nowrap; }
+  .lay button { padding:2px 7px; font-size:11.5px; }
+  .fly { position:fixed; z-index:50; min-width:220px; max-width:calc(100vw - 16px); padding:4px; background:var(--card);
+         border:1px solid var(--line); border-radius:8px; box-shadow:0 10px 30px rgba(20,30,50,.16); }
+  .fly button { display:flex; justify-content:space-between; gap:12px; width:100%; text-align:left; border-color:transparent; }
+  .fly .empty { padding:6px 8px; text-align:left; }
+
+  /* ---- viewport, labels, status bar ---- */
+  #wrap, #labels { position:fixed; top:var(--bar-h); bottom:var(--status-h); left:var(--left-w); right:var(--right-w); }
+  #wrap canvas { display:block; touch-action:none; }
+  #labels { pointer-events:none; overflow:hidden; z-index:5; }
   .lbl { position:absolute; left:0; top:0; white-space:nowrap; font-size:10.5px; line-height:1.25;
-         background:rgba(255,255,255,.82); border:1px solid rgba(0,0,0,.12); border-radius:4px; padding:1px 4px;
+         background:rgba(255,255,255,.85); border:1px solid rgba(0,0,0,.12); border-radius:4px; padding:1px 4px;
          color:#222; will-change:transform; }
   .lbl b { font-weight:600; }
   .lbl.clr { background:rgba(255,248,214,.95); border-color:#d8b84a; font-weight:600; }
   .lbl.clr.bad { background:rgba(255,226,226,.95); border-color:#d55; color:var(--warn); }
-  #title { font-weight:700; }
-  @media (max-width:600px) {
+  #status { position:fixed; left:0; right:0; bottom:0; height:var(--status-h); z-index:20; display:flex; align-items:center; gap:12px;
+            padding:0 12px; background:var(--side); border-top:1px solid var(--line); color:var(--muted); font-size:11.5px; }
+  #hint { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  kbd { font:inherit; font-size:10.5px; border:1px solid var(--line); border-bottom-width:2px; border-radius:4px; padding:0 4px; background:var(--card); }
+  .mobile { display:none; }
+  .sheetHead { display:none; }
+
+  /* ---- narrower desktops ---- */
+  @media (max-width:1180px) and (min-width:900px) {
+    :root { --left-w:236px; --right-w:300px; }
+    .brand b + #layoutTitle { display:none; }
+    #status .units { display:none; }
+  }
+
+  /* ---- phones & small tablets: full-screen view, panels become bottom sheets ---- */
+  @media (max-width:899px) {
+    :root { --bar-h:auto; }
+    #appbar { height:auto; min-height:48px; flex-wrap:wrap; gap:6px; padding:6px 8px; padding-top:max(6px, env(safe-area-inset-top)); }
+    .brand, #status, .desktop { display:none; }
+    .mobile { display:inline-flex; }
+    #pills { order:10; flex-basis:100%; flex-wrap:wrap; }
+    #pills:empty, #pills:not(:has(:not([hidden]))) { display:none; }
+    #wrap, #labels { inset:0; }
+    .sidebar { top:auto; bottom:0; left:0 !important; right:0 !important; width:auto !important; max-height:52vh;
+               border:1px solid var(--line); border-radius:14px 14px 0 0; box-shadow:0 -8px 30px rgba(20,30,50,.16);
+               transform:translateY(105%); transition:transform .22s ease; z-index:30;
+               padding-bottom:env(safe-area-inset-bottom); }
+    .sidebar.open { transform:none; }
+    #right { display:flex; }
+    .sheetHead { display:flex; align-items:center; justify-content:space-between; padding:10px 14px 0; }
+    .tabs .mobile { flex:none; border:0; background:transparent; padding:0 12px; }
+    .pop { top:auto; bottom:0; right:0; left:0; width:auto; border-radius:14px 14px 0 0; max-height:70vh; }
     .lbl { font-size:9px; padding:0 3px; }
     .lbl .d { display:none; }
-    #menu { font-size:11px; }
-    button { padding:4px 6px; }
+    button { padding:5px 9px; }
   }
 </style>
 </head>
 <body>
-<div id="wrap"></div>
-<div id="labels"></div>
-<div id="recentFly" class="panel fly" role="menu" hidden></div>
-
-<div id="hud">
-  <div id="menuRow">
-    <button id="menuBtn" aria-expanded="false" aria-controls="menu">☰ Menu</button>
+<header id="appbar">
+  <button id="setupBtn" class="tb mobile" aria-controls="left" aria-expanded="false">☰ Setup</button>
+  <div class="brand"><b>Desk Plan 3D</b><span id="layoutTitle"></span></div>
+  <div class="tbgrp" role="group" aria-label="Edit">
+    <button id="undoBtn" class="tb icon" title="Undo (⌘Z / Ctrl+Z)" aria-label="Undo">↶</button>
+    <button id="redoBtn" class="tb icon" title="Redo (⇧⌘Z / Ctrl+Y)" aria-label="Redo">↷</button>
+  </div>
+  <div class="seg" role="group" aria-label="View">
+    <button data-view="default" title="Perspective overview">3D</button><button data-view="top" title="Flat top view">Top</button><button data-view="front" title="Flat front view">Front</button><button data-view="side" title="Flat side view">Side</button><button data-view="seated" title="Eye view, 6′5″ seated">Seated</button>
+  </div>
+  <div class="tbgrp" role="group" aria-label="Show">
+    <button id="lblBtn" class="tb" title="Object labels and clearance lines">Labels</button>
+    <button id="wallBtn" class="tb on" title="Show the back wall">Wall</button>
+  </div>
+  <div id="pills">
     <button id="ovPill" class="pill" hidden></button>
     <button id="wallPill" class="pill" hidden>⚠ Arm hits the wall</button>
     <button id="armPill" class="pill" hidden></button>
   </div>
-  <div id="menu" class="panel" hidden>
-    <div class="row top"><b id="title">Desk Plan 3D</b><button id="menuClose" aria-label="Close menu">✕</button></div>
-    <div class="sub">Origin: back-left corner of desktop. X→right, Y↑, Z→you. Inches (cm).</div>
-    <h4>Layouts</h4>
-    <div class="sub" id="layoutStatus"></div>
-    <form id="saveForm" class="lrow" autocomplete="off">
-      <input id="layoutName" type="text" maxlength="60" placeholder="Layout name" aria-label="Layout name">
-      <button type="submit" id="saveBtn">Save</button>
-    </form>
-    <button id="recentBtn" class="menuItem" aria-haspopup="true" aria-expanded="false"><span>Open recent</span><span class="caret">▸</span></button>
-    <div id="layoutList"></div>
-    <div class="lrow">
-      <button id="exportBtn">Export…</button>
-      <button id="importBtn">Import…</button>
-      <input id="importFile" type="file" accept=".json,application/json" hidden>
-    </div>
-    <h4>Clearances</h4>
-    <table id="clrTable"></table>
-    <div id="overlaps"></div>
-    <details id="notes">
-      <summary>⚠ Assumptions &amp; sources</summary>
-      <div id="notesBody"></div>
-    </details>
-  </div>
-</div>
+  <span class="spacer"></span>
+  <button id="menuBtn" class="tb" aria-expanded="false" aria-controls="menu" title="Save, open and share layouts">Layouts ▾</button>
+  <button id="infoBtn" class="tb mobile" aria-controls="right">Info</button>
+</header>
 
-<div id="bottom">
-  <div id="sel" class="panel hidden">
-    <div class="row top"><b id="selName"></b><button id="selClose" aria-label="Deselect">✕</button></div>
-    <div class="row" id="modeSeg">
-      <button data-mode="move" title="Move along the floor; from a front or side view it slides across the screen only">✥ Move</button>
-      <button data-mode="x" title="Left / right only">↔ X</button>
-      <button data-mode="z" title="Toward / away from you only">⤢ Z</button>
-      <button data-mode="lift" title="Up / down only">↕ Lift</button>
-      <button data-mode="rotate">⟳ Rotate</button>
-      <span class="sub" id="modeHint"></span>
-    </div>
-    <div class="row">
-      <label>X <input id="inX" type="number" step="0.25"></label>
-      <label><span id="lblY">Y</span> <input id="inY" type="number" step="0.25"></label>
-      <label>Z <input id="inZ" type="number" step="0.25"></label>
-      <label>° <input id="inR" type="number" step="1"></label>
-    </div>
-    <div class="row">
-      <button data-rot="-15">−15°</button><button data-rot="-1">−1°</button>
-      <button data-rot="1">+1°</button><button data-rot="15">+15°</button>
-      <button id="selReset">Reset this</button>
-    </div>
-    <div id="armPanel" hidden>
-      <div class="sub">VIVO arm joints (the monitor follows; dragging the monitor moves them too)</div>
-      <div class="slide"><span>Collar</span><input id="jy" type="range" step="0.05" aria-label="Collar height"><output id="jyOut"></output></div>
-      <div class="slide"><span>Lower arm</span><input id="ja1" type="range" min="-180" max="180" step="1" aria-label="Lower arm angle"><output id="ja1Out"></output></div>
-      <div class="slide"><span>Elbow</span><input id="ja2" type="range" min="-180" max="180" step="1" aria-label="Elbow angle"><output id="ja2Out"></output></div>
-      <div class="slide"><span>Gas arm</span><input id="jp" type="range" step="0.5" aria-label="Gas-spring arm angle"><output id="jpOut"></output></div>
-      <div class="slide"><span>Head</span><input id="ja3" type="range" min="-90" max="90" step="1" aria-label="Head swivel"><output id="ja3Out"></output></div>
-      <div class="row"><button data-fold="-1" title="Lower arm along the wall to the left, gas arm folded back over it">◀ Fold left</button><button data-fold="1" title="Lower arm along the wall to the right, gas arm folded back over it">Fold right ▶</button><button id="armReset">Reset arm</button></div>
-    </div>
-    <div class="row" id="monRow" hidden>
-      <label>Tilt <input id="inTilt" type="number" step="1" min="-30" max="45"></label>
-      <button data-tilt="-5">−5°</button><button data-tilt="5">+5°</button>
-      <button id="portraitBtn">Portrait</button>
-      <span class="sub">+ top toward you, − away (+45° to −30°)</span>
-    </div>
-    <div class="sub" id="selCm"></div>
-  </div>
-  <div id="room" class="panel" hidden>
-    <div class="row top"><b>Distance from the wall</b><button id="roomClose" aria-label="Close">✕</button></div>
-    <div class="slide"><span>Desk</span><button data-nudge="deskWall" data-d="-0.25" aria-label="Desk closer">−</button>
-      <input id="deskWall" type="range" min="0" max="24" step="0.25" aria-label="Desk to wall">
-      <button data-nudge="deskWall" data-d="0.25" aria-label="Desk further">+</button><output id="deskWallOut"></output></div>
-    <div class="slide"><span>ALEX</span><button data-nudge="alexWall" data-d="-0.25" aria-label="ALEX closer">−</button>
-      <input id="alexWall" type="range" min="0" max="24" step="0.25" aria-label="ALEX to wall">
-      <button data-nudge="alexWall" data-d="0.25" aria-label="ALEX further">+</button><output id="alexWallOut"></output></div>
-    <div class="sub">From each back edge to the wall.</div>
-  </div>
-  <div id="bar" class="panel">
-    <div class="grp"><span>Rack</span><button data-k="rack" data-v="2U">2U</button><button data-k="rack" data-v="4U">4U</button></div>
-    <div class="grp"><span>Monitor</span><button data-k="mon" data-v="a" title="ASUS ProArt PA32QCV">a</button><button data-k="mon" data-v="b" title="INNOCN 34C1U">b</button><button data-k="mon" data-v="c" title="Dell U3425WE">c</button><button data-k="mon" data-v="d" title="Dell U2724D (current)">d·now</button></div>
-    <div class="grp"><span>MacBook</span><button data-k="mac" data-v="13">13″</button><button data-k="mac" data-v="15">15″</button><button id="lapBtn">Hide</button></div>
-    <div class="grp"><span>iPad</span><button data-k="ipad" data-v="left" title="Left of monitor">←</button><button data-k="ipad" data-v="above" title="Above monitor">↑</button><button data-k="ipad" data-v="below" title="Below monitor">↓</button><button data-k="ipad" data-v="right" title="Right of monitor">→</button></div>
-    <div class="grp"><span>View</span><button data-view="top">Top</button><button data-view="front">Front</button><button data-view="side">Side</button><button data-view="seated">Seated</button></div>
-    <div class="grp"><button id="undoBtn" title="Undo (Ctrl/⌘+Z)">↶ Undo</button><button id="redoBtn" title="Redo (Ctrl/⌘+Shift+Z)">↷ Redo</button><button id="lblBtn">Labels</button><button id="wallBtn" class="on">Wall</button><button id="roomBtn">Wall gaps</button><button id="dropAllBtn" title="Lower everything onto the surface beneath it">⤓ Drop all</button><button id="resetBtn">Reset layout</button></div>
+<div id="menu" class="pop" hidden>
+  <div class="row top"><b>Layouts</b><button id="menuClose" class="icon" aria-label="Close">✕</button></div>
+  <div class="sub" id="layoutStatus"></div>
+  <form id="saveForm" class="lrow" autocomplete="off">
+    <input id="layoutName" type="text" maxlength="60" placeholder="Layout name" aria-label="Layout name">
+    <button type="submit" id="saveBtn">Save</button>
+  </form>
+  <button id="recentBtn" class="menuItem" aria-haspopup="true" aria-expanded="false"><span>Open recent</span><span class="caret">▸</span></button>
+  <div id="layoutList"></div>
+  <div class="lrow">
+    <button id="exportBtn">Export…</button>
+    <button id="importBtn">Import…</button>
+    <input id="importFile" type="file" accept=".json,application/json" hidden>
   </div>
 </div>
+<div id="recentFly" class="fly" role="menu" hidden></div>
+
+<aside id="left" class="sidebar" aria-label="Setup">
+  <div class="sheetHead"><b>Setup</b><button class="icon" data-close="left" aria-label="Close">✕</button></div>
+  <section>
+    <h3>Equipment</h3>
+    <div class="field"><label>Rack</label>
+      <div class="seg"><button data-k="rack" data-v="2U">2U</button><button data-k="rack" data-v="4U">4U</button></div></div>
+    <div class="field col"><label>Monitor</label>
+      <div class="list">
+        <button data-k="mon" data-v="d"><span>Dell U2724D 27″</span><span class="tag">current</span></button>
+        <button data-k="mon" data-v="a"><span>ASUS ProArt PA32QCV 32″</span></button>
+        <button data-k="mon" data-v="b"><span>INNOCN 34C1U 34″</span></button>
+        <button data-k="mon" data-v="c"><span>Dell U3425WE 34″ curved</span></button>
+      </div></div>
+    <div class="field"><label>MacBook Air</label>
+      <div class="seg"><button data-k="mac" data-v="13">13″</button><button data-k="mac" data-v="15">15″</button></div>
+      <button id="lapBtn" class="icon" title="Show or hide the laptop">Hide</button></div>
+    <div class="field"><label>iPad</label>
+      <div class="seg"><button data-k="ipad" data-v="left" title="Left of the monitor">←</button><button data-k="ipad" data-v="above" title="Above the monitor">↑</button><button data-k="ipad" data-v="below" title="Below the monitor">↓</button><button data-k="ipad" data-v="right" title="Right of the monitor">→</button></div></div>
+  </section>
+  <section id="room">
+    <h3>Room</h3>
+    <div class="slide"><span>Desk ↔ wall</span><button data-nudge="deskWall" data-d="-0.25" aria-label="Desk closer to the wall">−</button>
+      <input id="deskWall" type="range" min="0" max="24" step="0.25" aria-label="Desk to wall">
+      <button data-nudge="deskWall" data-d="0.25" aria-label="Desk further from the wall">+</button><output id="deskWallOut"></output></div>
+    <div class="slide"><span>Drawers ↔ wall</span><button data-nudge="alexWall" data-d="-0.25" aria-label="Drawers closer to the wall">−</button>
+      <input id="alexWall" type="range" min="0" max="24" step="0.25" aria-label="Drawers to wall">
+      <button data-nudge="alexWall" data-d="0.25" aria-label="Drawers further from the wall">+</button><output id="alexWallOut"></output></div>
+  </section>
+  <section>
+    <h3>Objects</h3>
+    <div id="objList" class="list"></div>
+  </section>
+  <section>
+    <h3>Arrange</h3>
+    <div class="btnrow">
+      <button id="dropAllBtn" title="Lower everything onto the surface beneath it">⤓ Drop all</button>
+      <button id="resetBtn" title="Put everything back where it started">Reset layout</button>
+    </div>
+  </section>
+</aside>
+
+<aside id="right" class="sidebar" aria-label="Details">
+  <div class="tabs" role="tablist">
+    <button role="tab" data-tab="inspect" class="on">Inspector</button>
+    <button role="tab" data-tab="measure">Measurements</button>
+    <button role="tab" data-tab="notes">Notes</button>
+    <button class="mobile" data-close="right" aria-label="Close">✕</button>
+  </div>
+  <div class="tabpane" data-pane="inspect">
+    <div id="selEmpty" class="empty">Click an object in the scene, or pick one under <b>Objects</b>, to move it or adjust it.</div>
+    <div id="sel" class="hidden">
+      <div class="sel-head"><b id="selName"></b><button id="selClose" class="icon" title="Deselect (Esc)" aria-label="Deselect">✕</button></div>
+      <section>
+        <h3>Transform</h3>
+        <div class="seg tools" id="modeSeg">
+          <button data-mode="move" title="Move (M): along the floor; in a flat front/side view, across the screen">✥ Move</button>
+          <button data-mode="x" title="Left/right only (X)">↔ X</button>
+          <button data-mode="z" title="Toward/away only (Z)">⤢ Z</button>
+          <button data-mode="lift" title="Up/down only (L)">↕ Lift</button>
+          <button data-mode="rotate" title="Rotate (R)">⟳</button>
+        </div>
+        <div class="grid4">
+          <label>X″ <input id="inX" type="number" step="0.25"></label>
+          <label><span id="lblY">Y″</span> <input id="inY" type="number" step="0.25"></label>
+          <label>Z″ <input id="inZ" type="number" step="0.25"></label>
+          <label>Angle° <input id="inR" type="number" step="1"></label>
+        </div>
+        <div class="btnrow">
+          <div class="seg"><button data-rot="-15" title="Rotate −15° ([)">−15°</button><button data-rot="-1">−1°</button><button data-rot="1">+1°</button><button data-rot="15" title="Rotate +15° (])">+15°</button></div>
+          <button id="selReset">Reset</button>
+        </div>
+        <div class="sub" id="selCm" style="margin-top:6px"></div>
+      </section>
+      <section id="armPanel" hidden>
+        <h3>VIVO arm</h3>
+        <div class="slide"><span>Collar</span><input id="jy" type="range" step="0.05" aria-label="Collar height"><output id="jyOut"></output></div>
+        <div class="slide"><span>Lower arm</span><input id="ja1" type="range" min="-180" max="180" step="1" aria-label="Lower arm angle"><output id="ja1Out"></output></div>
+        <div class="slide"><span>Elbow</span><input id="ja2" type="range" min="-180" max="180" step="1" aria-label="Elbow angle"><output id="ja2Out"></output></div>
+        <div class="slide"><span>Gas arm</span><input id="jp" type="range" step="0.5" aria-label="Gas-spring arm angle"><output id="jpOut"></output></div>
+        <div class="slide"><span>Head</span><input id="ja3" type="range" min="-90" max="90" step="1" aria-label="Head swivel"><output id="ja3Out"></output></div>
+        <div class="btnrow" style="margin-top:8px">
+          <button data-fold="-1" title="Lower arm along the wall to the left, gas arm folded back over it">◀ Fold left</button>
+          <button data-fold="1" title="Lower arm along the wall to the right, gas arm folded back over it">Fold right ▶</button>
+          <button id="armReset">Reset arm</button>
+        </div>
+      </section>
+      <section id="monRow" hidden>
+        <h3>Monitor head</h3>
+        <div class="field"><label>Tilt°</label><input id="inTilt" type="number" step="1" min="-30" max="45" style="width:70px">
+          <div class="seg"><button data-tilt="-5">−5°</button><button data-tilt="5">+5°</button></div></div>
+        <div class="field"><label>Orientation</label><button id="portraitBtn">Portrait</button></div>
+        <div class="sub">Tilt: + tips the top toward you, − away (+45° to −30°).</div>
+      </section>
+    </div>
+  </div>
+  <div class="tabpane" data-pane="measure" hidden>
+    <section>
+      <h3>Clearances</h3>
+      <table id="clrTable"></table>
+    </section>
+    <section>
+      <h3>Overlaps</h3>
+      <div id="overlaps"></div>
+    </section>
+  </div>
+  <div class="tabpane" data-pane="notes" hidden>
+    <section><div id="notesBody"></div></section>
+  </div>
+</aside>
+
+<main id="wrap" aria-label="3D view"></main>
+<div id="labels"></div>
+<footer id="status"><span id="hint"></span><span class="spacer"></span><span class="units">Inches (cm) · origin: back-left corner of the desktop · X→right, Y↑, Z→you</span></footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -354,12 +494,14 @@ const grid = new THREE.GridHelper(240, 20, 0xbfc4cc, 0xd0d4da); grid.position.se
 const axes = new THREE.AxesHelper(3); axes.position.set(0, 0.02, 0); scene.add(axes);
 
 function resize() {
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  const aspect = window.innerWidth / window.innerHeight;
+  const w = Math.max(1, wrap.clientWidth), h = Math.max(1, wrap.clientHeight);
+  renderer.setSize(w, h);
+  const aspect = w / h;
   perspCam.aspect = aspect; perspCam.updateProjectionMatrix();
   const halfH = orthoCam.top || 1;
   orthoCam.left = -halfH * aspect; orthoCam.right = halfH * aspect; orthoCam.updateProjectionMatrix();
 }
+new ResizeObserver(resize).observe(wrap);
 window.addEventListener('resize', resize); resize();
 
 // ============================================================================
@@ -853,13 +995,21 @@ function overlap(A, B) {
   return true;
 }
 let overlaps = [], armHitsWall = false;
+const hitUnits = new Set();
+// plain object names for the overlap list
+function objName(X) {
+  const part = X.c.userData.part;
+  if (X.u === 'monitor') return part === 'monitor:mon' || part === 'monitor:vesa' ? 'Monitor' : 'iPad';
+  return { rack: 'Rack', pole: 'Arm', arm: 'Arm', laptop: 'MacBook', mixpre: 'MixPre', keyboard: 'Keyboard',
+           dock: 'Dock', desk: 'Desk', wall: 'Wall', alex: 'Drawers' }[X.u] || X.c.userData.label;
+}
 function checkCollisions() {
   const list = [];
   for (const u of Object.values(units)) {
     if (!u.group.visible) continue;
     for (const c of u.colliders) { c.visible = false; list.push({ c, u: u.id, o: obb(c) }); }
   }
-  const hitParts = new Set(); overlaps = []; armHitsWall = false;
+  const hitParts = new Set(); overlaps = []; armHitsWall = false; hitUnits.clear();
   for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
     const A = list[i], B = list[j];
     if (A.u === B.u || SKIP.has(A.u + '|' + B.u) || touching(A, B)) continue;
@@ -869,7 +1019,9 @@ function checkCollisions() {
         if (X.u === 'wall') continue;
         X.c.visible = true; hitParts.add(X.c.userData.part);
       }
-      const pair = `${A.c.userData.label} × ${B.c.userData.label}`;
+      for (const X of [A, B]) if (X.u !== 'wall') hitUnits.add(X.u === 'arm' ? 'pole' : X.u);
+      if (armHitsWall && (A.u === 'wall' || B.u === 'wall') && (A.u === 'arm' || B.u === 'arm')) continue;  // has its own pill
+      const pair = [objName(A), objName(B)].sort().join(' ↔ ');
       if (!overlaps.includes(pair)) overlaps.push(pair);
     }
   }
@@ -928,11 +1080,6 @@ function updateClearances() {
   const lb = lapOn ? box(lp.named.lid).union(box(lp.named.base)) : null;
 
   const rackFront = DESK_D - rb.max.z;
-  let wallGap = Infinity;
-  for (const u of Object.values(units)) {
-    if (u.id === 'wall' || !u.group.visible) continue;
-    for (const c of u.colliders) wallGap = Math.min(wallGap, box(c).min.z - wallZ());
-  }
   const monMix = mb.min.y - xb.max.y;
   const monLap = lapOn ? mb.min.y - lb.max.y : NaN;
   const collar = po.state.y - rb.max.y;
@@ -955,28 +1102,20 @@ function updateClearances() {
   dims.ipad.line.material = over > 0 ? dimMat.bad : dimMat.ok;
   dims.ipad.label.el.classList.toggle('bad', over > 0);
 
-  const ch = mo.state.y, J = po.state, AF = armFK(J);
-  const lo = AF.yRoot + ARM.L2 * ARM.sinLo, hi = AF.yRoot + ARM.L2 * ARM.sinHi, ext = Math.hypot(AF.V.x - J.x, AF.V.z - J.z);
   const row = (k, v, cls = '') => `<tr><td>${k}</td><td class="v ${cls}">${v}</td></tr>`;
   const sign = v => v < 0 ? 'neg' : 'pos';
   clrTable.innerHTML =
     row('Rack front → desk front', fmt(rackFront), sign(rackFront)) +
-    (S.wall ? row('Wall → nearest object', fmt(wallGap), sign(wallGap)) : '') +
     row('Monitor bottom → MixPre top', fmt(monMix), sign(monMix)) +
-    row('Monitor bottom → laptop top', lapOn ? fmt(monLap) : 'hidden', lapOn ? sign(monLap) : '') +
+    row('Monitor bottom → laptop top', lapOn ? fmt(monLap) : 'laptop hidden', lapOn ? sign(monLap) : '') +
     row('Arm collar → rack top', fmt(collar), sign(collar)) +
-    row(`iPad overhang past desk ${overLeft ? 'left' : 'right'} edge`, over > 0 ? fmt(over) : `none (${fmt(-over)} inside)`, over > 0 ? 'neg' : 'pos') +
-    row('Screen center above desk', fmt(ch)) +
-    row('Arm height range at this collar', `${lo.toFixed(1)}–${hi.toFixed(1)}″`) +
-    row('Arm full range (collar + gas spring)', `${ARM.rangeMin.toFixed(1)}–${ARM.rangeMax.toFixed(1)}″`) +
-    row('Arm joints', `collar ${J.y.toFixed(2)}″ · lower ${J.a1.toFixed(0)}° · elbow ${J.a2.toFixed(0)}° · gas ${J.p.toFixed(1)}° · head ${J.a3.toFixed(0)}°`) +
-    row('ALEX gap to desk right edge', fmt(ab.min.x - DESK_W), sign(ab.min.x - DESK_W)) +
-    row('ALEX top below desktop', fmt(-ab.max.y)) +
-    row('Arm reach (pole → VESA)', `${ext.toFixed(2)} / ${ARM.maxExt}″`);
+    row(`iPad past desk ${overLeft ? 'left' : 'right'} edge`, over > 0 ? fmt(over) : 'none', over > 0 ? 'neg' : 'pos') +
+    row('Screen center above desk', fmt(mo.state.y));
   const armMsg = armResidual > 0.1 ? `⚠ Arm can't reach there (${armResidual.toFixed(1)}″ short)` : '';
   $('armPill').hidden = !armMsg; $('armPill').textContent = armMsg;
-  overlapsEl.textContent = overlaps.length ? '⚠ Overlap: ' + overlaps.join('; ') : 'No overlaps';
-  overlapsEl.style.color = overlaps.length ? '' : 'var(--ok)';
+  overlapsEl.innerHTML = overlaps.length || armHitsWall
+    ? `<ul>${[...(armHitsWall ? ['Arm ↔ Wall'] : []), ...overlaps].map(t => `<li>${t}</li>`).join('')}</ul>`
+    : '<span class="ok">Nothing overlaps.</span>';
   $('wallPill').hidden = !armHitsWall;
   $('ovPill').hidden = !overlaps.length;
   $('ovPill').textContent = `⚠ ${overlaps.length} overlap${overlaps.length > 1 ? 's' : ''}`;
@@ -1018,6 +1157,7 @@ function update() {
   syncSelPanel();
   syncButtons();
   syncRoom();
+  syncObjects();
   syncLayoutStatus();
   scheduleSave();
 }
@@ -1169,8 +1309,11 @@ window.addEventListener('keydown', e => {
   const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
   if (mod && key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if (mod && key === 'y') { e.preventDefault(); redo(); return; }
+  if (mod || e.altKey) return;
+  const tool = { m: 'move', x: 'x', z: 'z', l: 'lift', r: 'rotate' }[key];
+  if (tool) { S.mode = tool; syncSelPanel(); scheduleSave(); return; }
   if (!selected) return;
-  if (key === 'r' && !mod) undoable(() => { rotateBy(e.shiftKey ? 15 : -15); apply(units[selected]); update(); })();
+  if (e.key === '[' || e.key === ']') undoable(() => { rotateBy((e.key === ']' ? 1 : -1) * (e.shiftKey ? 1 : 15)); apply(units[selected]); update(); })();
   else if (e.key === 'Escape') select(null);
 });
 
@@ -1180,18 +1323,80 @@ window.addEventListener('keydown', e => {
 const $ = id => document.getElementById(id);
 const selEl = $('sel'), inX = $('inX'), inY = $('inY'), inZ = $('inZ'), inR = $('inR');
 function select(id) { selected = id; update(); }
+let lastSelected = null;
+const isPhone = () => matchMedia('(max-width:899px)').matches;
+const HINTS = {
+  move: 'Move: drag an object along the floor (in a flat Front/Side view it slides across the screen)',
+  x: 'X: drag to move left / right only', z: 'Z: drag to move toward / away only',
+  lift: 'Lift: drag to move up / down only', rotate: 'Rotate: drag sideways to turn the object',
+};
+function syncHint() {
+  const h = document.getElementById('hint'); if (!h) return;
+  h.innerHTML = selected
+    ? `${HINTS[S.mode]} · <kbd>M</kbd> <kbd>X</kbd> <kbd>Z</kbd> <kbd>L</kbd> <kbd>R</kbd> tools · <kbd>[</kbd> <kbd>]</kbd> rotate 15° · <kbd>Esc</kbd> deselect`
+    : 'Click an object to select it · drag empty space to orbit · scroll to zoom · right-drag to pan';
+}
+// ---- right-hand tabs and the phone bottom sheets ----
+let curTab = 'inspect';
+function showTab(t) {
+  curTab = t;
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  document.querySelectorAll('[data-pane]').forEach(p => { p.hidden = p.dataset.pane !== t; });
+}
+function openSheet(id) {
+  const other = id === 'left' ? 'right' : 'left';
+  if (isPhone()) closeSheet(other);
+  document.getElementById(id).classList.add('open');
+  if (id === 'left') document.getElementById('setupBtn').setAttribute('aria-expanded', 'true');
+}
+function closeSheet(id) {
+  document.getElementById(id).classList.remove('open');
+  if (id === 'left') document.getElementById('setupBtn').setAttribute('aria-expanded', 'false');
+}
+document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeSheet(b.dataset.close)));
+document.getElementById('setupBtn').addEventListener('click', () =>
+  document.getElementById('left').classList.contains('open') ? closeSheet('left') : openSheet('left'));
+document.getElementById('infoBtn').addEventListener('click', () => {
+  const r = document.getElementById('right');
+  if (r.classList.contains('open')) closeSheet('right'); else { showTab(selected ? 'inspect' : 'measure'); openSheet('right'); }
+});
+// ---- objects list ----
+const OBJECTS = [['rack', 'Gator rack'], ['monitor', 'Monitor + iPad'], ['pole', 'VIVO arm'], ['laptop', 'MacBook Air'],
+                 ['mixpre', 'MixPre'], ['keyboard', 'Magic Keyboard'], ['dock', 'Anker dock']];
+document.getElementById('objList').append(...OBJECTS.map(([id, name]) => {
+  const b = document.createElement('button');
+  b.dataset.obj = id;
+  b.innerHTML = `<span>${name}</span><span class="dot" title="Overlaps something"></span>`;
+  b.addEventListener('click', () => { select(selected === id ? null : id); if (isPhone()) closeSheet('left'); });
+  return b;
+}));
+function syncObjects() {
+  document.querySelectorAll('[data-obj]').forEach(b => {
+    const id = b.dataset.obj;
+    b.classList.toggle('on', selected === id);
+    b.classList.toggle('hit', hitUnits.has(id));
+    b.hidden = id === 'laptop' && !S.laptop;
+  });
+}
 function rotateBy(deg) {
   const u = units[selected];
   u.state.ry = Math.round(u.state.ry / DEG + deg) * DEG; u.moved = true;
 }
 function syncSelPanel() {
   selEl.classList.toggle('hidden', !selected);
+  $('selEmpty').hidden = !!selected;
   document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === S.mode));
-  $('modeHint').textContent = matchMedia('(pointer:fine)').matches ? 'Shift-drag lifts · Alt-drag rotates' : '';
+  syncHint();
+  if (selected !== lastSelected) {
+    lastSelected = selected;
+    if (selected) { showTab('inspect'); if (isPhone()) openSheet('right'); }
+    else if (isPhone() && curTab === 'inspect') closeSheet('right');
+  }
   if (!selected) return;
   const u = units[selected], s = u.state;
   $('selName').textContent = selected === 'monitor' ? `${mon().name} + iPad` : selected === 'laptop' ? `MacBook Air ${S.mac}″` : u.name;
-  $('lblY').textContent = selected === 'pole' ? 'Collar' : 'Y';
+  $('lblY').textContent = selected === 'pole' ? 'Collar″' : 'Y″';
   const set = (el, v) => { if (document.activeElement !== el) el.value = v; };
   set(inX, s.x.toFixed(2)); set(inY, s.y.toFixed(2)); set(inZ, s.z.toFixed(2));
   set(inR, (Math.round(s.ry / DEG * 10) / 10).toString());
@@ -1336,12 +1541,9 @@ document.querySelectorAll('[data-nudge]').forEach(b => b.addEventListener('click
 function syncRoom() {
   for (const k of ['deskWall', 'alexWall']) {
     if (document.activeElement !== $(k)) $(k).value = S[k];
-    $(k + 'Out').textContent = `${S[k].toFixed(2)}″ (${(S[k] * 2.54).toFixed(1)} cm)`;
+    $(k + 'Out').textContent = `${S[k].toFixed(2)}″`;
   }
-  $('roomBtn').classList.toggle('on', !$('room').hidden);
 }
-$('roomBtn').addEventListener('click', () => { $('room').hidden = !$('room').hidden; syncRoom(); });
-$('roomClose').addEventListener('click', () => { $('room').hidden = true; syncRoom(); });
 $('undoBtn').addEventListener('click', undo);
 $('redoBtn').addEventListener('click', redo);
 syncUndo();
@@ -1390,7 +1592,7 @@ function leaveOrthoIfRotated() {
   syncViewButtons();
 }
 function syncViewButtons() {
-  document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === orthoView));
+  document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === (orthoView || 'default')));
 }
 controls.addEventListener('change', leaveOrthoIfRotated);
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
@@ -1399,15 +1601,13 @@ document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click'
 $('notesBody').innerHTML =
   `<h4 class="flag">Assumed / unverified</h4><ul>${NOTES.flags.map(t => `<li class="flag">${t}</li>`).join('')}</ul>` +
   `<h4>Sourced</h4><ul>${NOTES.sources.map(t => `<li>${t}</li>`).join('')}</ul>` +
-  `<h4>Controls</h4><ul><li>Orbit: drag empty space (one finger / left mouse). Zoom: pinch / wheel. Pan: two fingers / right mouse.</li>` +
-  `<li>Tap or click an object to select it, then drag it. Move slides along the floor (from a front or side view it only moves across the screen, so nothing jumps toward you). X, Z and Lift lock to one axis; Rotate turns it. You can also type exact values. With a mouse, Shift-drag lifts and Alt-drag rotates; R rotates 15°.</li>` +
-  `<li>Your layout, toggles and view are saved in this browser and restored next visit. Reset layout starts over.</li>
-  <li>⤓ Drop all lowers the rack, keyboard, laptop, MixPre and dock onto whatever is under each one (rack, desk or floor). The monitor and arm stay where the arm holds them.</li>
-  <li>Menu → Layouts saves named setups in this browser; Open recent ▸ jumps between the last few. Export / Import moves them to another device as a file.</li>
-  <li>Top, Front and Side show a flat view with no perspective (highlighted while active). Orbit away and perspective comes back; pan and zoom keep it flat.</li>
-  <li>Arm (select the pole or monitor): sliders set the collar, lower arm, elbow, gas-spring arm and head swivel, and the monitor follows. Dragging or typing a monitor position moves the joints instead, smoothly from where they are; if it can't get there, it stops at its limit and says so. Fold left / right tucks it along the wall.</li>
-  <li>Undo / Redo step back through moves, rotations and toggles (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z). Camera moves aren't undone.</li>
-  <li>Objects can't be scaled. The iPad, its side arm and the plate move with the monitor.</li></ul>`;
+  `<h4>Coordinates</h4><ul><li>Inches (cm in labels). Origin: back-left corner of the desktop. X → right, Y ↑, Z → toward you.</li></ul>` +
+  `<h4>Controls</h4><ul>` +
+  `<li>Orbit: drag empty space. Zoom: scroll / pinch. Pan: right-drag / two fingers. View buttons jump to 3D, flat Top / Front / Side, or a seated eye view; orbiting out of a flat view brings perspective back.</li>` +
+  `<li>Select by clicking an object or using Setup → Objects. Drag it with the Inspector's tool: Move, X, Z, Lift or Rotate (keys M X Z L R; [ ] rotate 15°, Shift for 1°). Or type exact values.</li>` +
+  `<li>VIVO arm: the sliders set its joints and the monitor follows. Dragging the monitor moves the joints instead; if it can't get there it stops at its limit and says so.</li>` +
+  `<li>Layouts ▾ saves named setups in this browser, with Open recent ▸ and Export / Import for other devices. Undo / Redo: ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Y).</li>` +
+  `<li>Drop all lowers the rack, keyboard, laptop, MixPre and dock onto whatever is beneath. Objects can't be scaled.</li></ul>`;
 function setMenu(open) {
   $('menu').hidden = !open; $('menuBtn').setAttribute('aria-expanded', open);
   $('menuBtn').classList.toggle('on', open);
@@ -1438,8 +1638,9 @@ function when(t) {
 }
 function syncLayoutStatus() {
   const db = readLayouts(), cur = currentLayout && db.items[currentLayout];
-  if (!cur) { $('layoutStatus').textContent = 'Unsaved layout'; return; }
+  if (!cur) { $('layoutStatus').textContent = 'Unsaved layout'; $('layoutTitle').textContent = ''; return; }
   $('layoutStatus').textContent = `Current: ${cur.name}${cur.data === snapshot() ? '' : ' • unsaved changes'}`;
+  $('layoutTitle').textContent = `— ${cur.name}${cur.data === snapshot() ? '' : ' •'}`;
 }
 function saveLayout(name) {
   name = name.trim() || 'Untitled';
@@ -1559,16 +1760,18 @@ $('importFile').addEventListener('change', async () => {
 });
 $('menuBtn').addEventListener('click', () => setMenu($('menu').hidden));
 $('menuClose').addEventListener('click', () => setMenu(false));
-$('ovPill').addEventListener('click', () => setMenu(true));
-$('wallPill').addEventListener('click', () => setMenu(true));
-$('armPill').addEventListener('click', () => setMenu(true));
+for (const id of ['ovPill', 'wallPill', 'armPill']) $(id).addEventListener('click', () => { showTab('measure'); openSheet('right'); });
+document.addEventListener('pointerdown', e => {   // click outside closes the Layouts popover
+  if ($('menu').hidden || $('menu').contains(e.target) || $('menuBtn').contains(e.target) || $('recentFly').contains(e.target)) return;
+  setMenu(false);
+}, true);   // capture: object drags stop the event before it would bubble up
 
 // ============================================================================
 // Render loop: project HTML labels each frame
 // ============================================================================
 const tmp = new V3();
 function placeLabels() {
-  const w = window.innerWidth, h = window.innerHeight;
+  const w = labelsEl.clientWidth, h = labelsEl.clientHeight;
   for (const L of labels) {
     if (!L.show || !L.html) { L.el.style.display = 'none'; continue; }
     tmp.copy(L.pos).project(camera);
