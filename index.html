@@ -189,6 +189,7 @@
   <div class="tbgrp" role="group" aria-label="Show">
     <button id="lblBtn" class="tb" title="Object labels and clearance lines">Labels</button>
     <button id="wallBtn" class="tb on" title="Show the back wall">Wall</button>
+    <button id="shadowBtn" class="tb on" title="Lighting with soft shadows">Shadows</button>
   </div>
   <div id="pills">
     <button id="ovPill" class="pill" hidden></button>
@@ -471,6 +472,8 @@ const NOTES = {
 const wrap = document.getElementById('wrap');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 wrap.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xeef0f3);
@@ -484,11 +487,30 @@ controls.screenSpacePanning = true;
 controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 controls.maxDistance = 600;
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f99, 0.8));
-const sun = new THREE.DirectionalLight(0xffffff, 0.4); sun.position.set(30, 90, 70); scene.add(sun);
+// Lighting: soft sky light, a warm "sun" up front-left that casts the shadows (onto the desk, floor
+// and wall), and a cool fill from the right so shaded sides don't go flat.
+scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa0aa, 0.55));
+const sun = new THREE.DirectionalLight(0xfff4e6, 0.62);
+sun.position.set(DESK_W / 2 - 35, 95, DESK_D + 75);
+sun.target.position.set(DESK_W / 2 + 10, -12, DESK_D / 2);
+scene.add(sun, sun.target);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -80, right: 80, top: 80, bottom: -80, near: 20, far: 300 });
+sun.shadow.camera.updateProjectionMatrix();
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.03;
+const fill = new THREE.DirectionalLight(0xe2ebff, 0.2);
+fill.position.set(DESK_W + 80, 35, DESK_D + 40);
+scene.add(fill);
+function applyShadows(on) {
+  renderer.shadowMap.enabled = on; sun.castShadow = on;
+  scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
+}
 
 // floor + grid (12" squares)
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), new THREE.MeshLambertMaterial({ color: 0xe2e4e8 }));
+floor.receiveShadow = true;
 floor.rotation.x = -Math.PI / 2; floor.position.set(DESK_W / 2, -DESK_H - 0.01, DESK_D / 2); scene.add(floor);
 const grid = new THREE.GridHelper(240, 20, 0xbfc4cc, 0xd0d4da); grid.position.set(DESK_W / 2, -DESK_H, DESK_D / 2); scene.add(grid);
 const axes = new THREE.AxesHelper(3); axes.position.set(0, 0.02, 0); scene.add(axes);
@@ -515,6 +537,7 @@ function addMesh(u, part, geom, color, parent, pos) {
   const m = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ color }));
   m.userData = { base: new THREE.Color(color), unit: u.selId || u.id, part: u.id + ':' + part };
   if (pos) m.position.set(pos[0], pos[1], pos[2]);
+  m.castShadow = m.receiveShadow = true;
   (parent || u.group).add(m);
   m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geom, 25), EDGE_MAT));
   u.meshes.push(m);
@@ -551,7 +574,7 @@ function disposeTree(o) {
 // Units (movable groups)
 // ============================================================================
 const IPAD_SIDES = ['left', 'right', 'above', 'below'];
-const S = { ipad: 'right', rack: '4U', mon: 'd', mac: 13, laptop: true, labels: false, wall: true, deskWall: WALL_GAP, alexWall: WALL_GAP, mode: 'move' };
+const S = { ipad: 'right', rack: '4U', mon: 'd', mac: 13, laptop: true, labels: false, wall: true, shadows: true, deskWall: WALL_GAP, alexWall: WALL_GAP, mode: 'move' };
 const wallZ = () => -S.deskWall;
 const units = {};
 function defUnit(id, name, build, opts = {}) {
@@ -617,6 +640,7 @@ defUnit('wall', 'Back wall', u => {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, WALL_H), new THREE.MeshLambertMaterial({ color: 0xe9e5de }));
   m.position.set(cx, y0 + WALL_H / 2, 0);
   m.userData = { base: new THREE.Color(0xe9e5de), unit: 'wall', part: 'wall:wall' };
+  m.receiveShadow = true;
   u.group.add(m); u.meshes.push(m);
   addBox(u, 'wall', w, 3.5, 0.5, 0xf7f7f5, cx, y0 + 1.75, 0.25, null, { collider: false });
   addCollider(u, 'wall', w, WALL_H, 0.5, cx, y0 + WALL_H / 2, -0.25, null, 'Back wall');
@@ -914,6 +938,7 @@ if (saved && saved.S) {
   if (typeof o.laptop === 'boolean') S.laptop = o.laptop;
   if (saved.v >= 2 && typeof o.labels === 'boolean') S.labels = o.labels;
   if (typeof o.wall === 'boolean') S.wall = o.wall;
+  if (typeof o.shadows === 'boolean') S.shadows = o.shadows;
   for (const k of ['deskWall', 'alexWall']) if (Number.isFinite(o[k])) S[k] = Math.min(GAP_MAX, Math.max(0, o[k]));
   if (['move', 'x', 'z', 'lift', 'rotate'].includes(o.mode)) S.mode = o.mode;
 }
@@ -921,7 +946,7 @@ let currentLayout = saved && typeof saved.currentLayout === 'string' ? saved.cur
 let saveTimer = 0;
 function saveNow() {
   clearTimeout(saveTimer); saveTimer = 0;
-  const data = { v: 2, S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, wall: S.wall, deskWall: S.deskWall, alexWall: S.alexWall, mode: S.mode }, units: {},
+  const data = { v: 2, S: { ipad: S.ipad, rack: S.rack, mon: S.mon, mac: S.mac, laptop: S.laptop, labels: S.labels, wall: S.wall, shadows: S.shadows, deskWall: S.deskWall, alexWall: S.alexWall, mode: S.mode }, units: {},
     cam: { p: camera.position.toArray(), t: controls.target.toArray() }, currentLayout };
   for (const id of ORDER) { const u = units[id]; data.units[id] = { state: u.state, moved: u.moved }; }
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable: just don't persist */ }
@@ -1147,6 +1172,9 @@ function update() {
   units.laptop.group.visible = S.laptop;
   units.wall.group.visible = S.wall;
   units.wall.group.position.z = wallZ();
+  // the room ends at the wall: floor and grid start there (or run under everything with the wall off)
+  const floorZ = S.wall ? wallZ() + 120 : DESK_D / 2;
+  floor.position.z = grid.position.z = floorZ;
   units.alex.state = DEFAULTS.alex(); apply(units.alex);
   placeMonitorFromArm();
   updateArm();
@@ -1511,6 +1539,7 @@ function syncButtons() {
   $('lapBtn').textContent = S.laptop ? 'Hide' : 'Show';
   $('lblBtn').classList.toggle('on', S.labels);
   $('wallBtn').classList.toggle('on', S.wall);
+  $('shadowBtn').classList.toggle('on', S.shadows);
 }
 document.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', undoable(() => {
   const k = b.dataset.k, v = k === 'mac' ? +b.dataset.v : b.dataset.v;
@@ -1526,6 +1555,8 @@ document.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', u
 $('lapBtn').addEventListener('click', undoable(() => { S.laptop = !S.laptop; if (!S.laptop && selected === 'laptop') selected = null; update(); }));
 $('lblBtn').addEventListener('click', () => { S.labels = !S.labels; update(); });
 $('wallBtn').addEventListener('click', () => { S.wall = !S.wall; update(); });
+$('shadowBtn').addEventListener('click', () => { S.shadows = !S.shadows; applyShadows(S.shadows); update(); });
+if (!S.shadows) applyShadows(false);
 $('resetBtn').addEventListener('click', undoable(() => { ORDER.forEach(resetUnit); setView('default'); update(); }));
 // ---- wall gaps panel ----
 const setGap = (k, v) => { S[k] = Math.min(GAP_MAX, Math.max(0, Math.round(v * 4) / 4)); };
